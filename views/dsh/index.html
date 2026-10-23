@@ -8,6 +8,7 @@
 <section class="stats" aria-label="会话概览"><div class="stat"><span>全部会话</span><b id="total">—</b></div><div class="stat"><span>正在运行 / 等待</span><b id="active">—</b></div><div class="stat"><span>长期保留</span><b id="kept">—</b></div><div class="stat"><span>免空闲回收</span><b id="exempt">—</b></div></section>
 <section class="panel" aria-label="会话列表"><div class="filters"><input id="search" type="search" placeholder="搜索标题、通道或会话 ID" aria-label="搜索会话"><select id="status" aria-label="筛选运行状态"><option value="all">全部状态</option><option value="running">运行中</option><option value="waiting">等待确认 / 回复</option><option value="idle">空闲</option><option value="cold">已回收 / 冷会话</option><option value="unknown">状态未知</option></select><span id="sync" class="live">尚未同步</span></div><div class="table-wrap"><table><thead><tr><th scope="col">会话 / 通道</th><th scope="col">运行状态</th><th scope="col">最近使用</th><th scope="col">记录策略</th><th scope="col">导出记录</th></tr></thead><tbody id="rows"><tr><td colspan="5" class="empty">正在加载会话…</td></tr></tbody></table></div></section>
 <footer><div><strong>长期保留</strong>：持久保存该会话的管理记录，不等于保持 agent 在线。<strong>免空闲回收</strong>：跳过该会话的空闲释放，与长期保留互不联动。</div><div id="policy">状态每 5 秒同步；页面隐藏时暂停。导出可能包含对话内容，请妥善保存。</div></footer>
+<script src="/api/plugin/page/bridge-sdk.js"></script>
 <script>
 'use strict';
 (() => {
