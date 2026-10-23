@@ -28,6 +28,9 @@ sys.modules["astrbot.api"] = api
 
 
 class _Filter:
+    def on_llm_request(self, **kwargs):
+        return lambda fn: fn
+
     def llm_tool(self, name=None, **kwargs):
         def decorator(fn):
             fn.__llm_tool_name__ = name
@@ -641,6 +644,27 @@ def test_reclaim_serializes_new_request_and_preserves_new_record():
         assert plugin._session_activity[lane]["session_id"] == "new"
         assert not plugin._active_lanes
         await plugin.terminate()
+    run(scenario())
+
+
+def test_capability_hint_respects_tool_selection_and_permission():
+    async def scenario():
+        plugin = main.DshToolPlugin(None, {})
+        class Tools:
+            def __init__(self, active=True):
+                self.tool = types.SimpleNamespace(active=active)
+            def get_tool(self, name): return self.tool
+        request = types.SimpleNamespace(func_tool=Tools(), system_prompt="persona")
+        await plugin.remind_dsh_capability(FakeEvent(), request)
+        assert "当前 DSH 工具能力" in request.system_prompt
+        assert request.system_prompt.startswith("persona")
+        request = types.SimpleNamespace(func_tool=None, system_prompt="persona")
+        await plugin.remind_dsh_capability(FakeEvent(), request)
+        assert request.system_prompt == "persona"
+        for event, tools in [(FakeEvent(admin=False), Tools()), (FakeEvent(), Tools(False))]:
+            request = types.SimpleNamespace(func_tool=tools, system_prompt="persona")
+            await plugin.remind_dsh_capability(event, request)
+            assert request.system_prompt == "persona"
     run(scenario())
 
 

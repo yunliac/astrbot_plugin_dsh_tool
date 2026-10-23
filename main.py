@@ -425,6 +425,31 @@ class DshToolPlugin(Star):
             await asyncio.gather(*tasks, return_exceptions=True)
         self._bg_lanes.clear()
 
+    @filter.on_llm_request()
+    async def remind_dsh_capability(self, event: AstrMessageEvent, req: Any) -> None:
+        """Describe current capabilities, not stale assistant denials in chat history.
+
+        Never add a tool that persona/session configuration has excluded.
+        """
+        tools = getattr(req, "func_tool", None)
+        tool = tools.get_tool("dsh_task") if tools is not None else None
+        allowed, _ = self._check_permission(event)
+        available = tool is not None and getattr(tool, "active", True)
+        logger.info("[dsh_task] 请求工具诊断：available=%s permitted=%s", available, allowed)
+        if not available or not allowed:
+            return
+        hint = (
+            "\n[当前 DSH 工具能力]\n"
+            "本次请求实际提供了 dsh_task 函数工具。以当前工具列表为准，"
+            "不要沿用历史回复中‘没有 dsh_task/终端通道’的过期结论。"
+            "用户明确要求调用 DSH、检查服务器实时状态或实际操作时，应调用 dsh_task，"
+            "不要让用户代为执行命令或反复确认工具是否存在。"
+            "只询问能否连接时可用 task='/status' 检查；"
+            "要查服务器软件/日志/配置必须传完整任务让 DSH 实际执行。"
+            "不要声称执行成功，除非工具结果证实。并行时使用不同 session 和 background=true。\n"
+        )
+        req.system_prompt = (getattr(req, "system_prompt", None) or "") + hint
+
     # -- 权限 ------------------------------------------------------------- #
 
     def _check_permission(self, event: AstrMessageEvent) -> tuple[bool, str]:
