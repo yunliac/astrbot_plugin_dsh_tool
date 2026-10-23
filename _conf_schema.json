@@ -1,0 +1,47 @@
+{
+  "ingress_url": {
+    "description": "DSH ingress 地址（留空 = 自动）",
+    "hint": "形如 http://127.0.0.1:3188。留空时先复用 astrbot_plugin_dsh 的配置；仍然没有就依次尝试 host.docker.internal:3188（Docker）与 127.0.0.1:3188（裸机）。非默认端口请手填。",
+    "type": "string",
+    "default": ""
+  },
+  "token": {
+    "description": "DSH ingress 的 Bearer token（留空 = 复用桥配置）",
+    "hint": "与 astrbot_plugin_dsh 使用同一个 token。留空时自动读取桥插件的配置；容器部署通常需要手填（token 在宿主机的 dsh-astrbot-ingress 配置里）。",
+    "type": "string",
+    "default": ""
+  },
+  "bridge_config_path": {
+    "description": "桥插件配置文件路径（留空 = 自动查找）",
+    "hint": "默认查找 AstrBot 数据目录/config/astrbot_plugin_dsh_config.json，找不到再试 /AstrBot/data/config/ 下的同名文件。只有路径很特殊时才需要填。",
+    "type": "string",
+    "default": ""
+  },
+  "timeout_sec": {
+    "description": "等待 DSH 结果的超时（秒）",
+    "hint": "按流空闲时间计算，DSH 持续输出就会一直等。注意 AstrBot 自身还有「工具调用超时时间」（agent_runner.config.misc.tool_call_timeout，默认 120 秒），要跑长任务请把它一并调大。",
+    "type": "int",
+    "default": 900
+  },
+  "max_result_chars": {
+    "description": "返回给模型的结果最大字符数",
+    "hint": "超出会截断，避免撑爆上下文。默认 6000。",
+    "type": "int",
+    "default": 6000
+  },
+  "admin_only": {
+    "description": "仅管理员可调用",
+    "hint": "关闭后所有能触发 LLM 的用户都可以让 DSH 在服务器上执行命令，风险很高，建议保持开启。",
+    "type": "bool",
+    "default": true
+  },
+  "allow_users": {
+    "description": "额外允许的用户 ID（可空）",
+    "hint": "填了之后，这些发送者即使不是管理员也能调用 dsh_task。一般留空。",
+    "type": "list",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  }
+}

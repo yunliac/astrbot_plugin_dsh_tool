@@ -1,0 +1,19 @@
+# 插件运行时产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 本地配置与凭据
+.env
+config.local.*
+*.local.json
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,29 @@
+name: astrbot_plugin_dsh_tool
+display_name: DSH 工具（日常对话）
+short_desc: 在普通对话中给模型一个 dsh_task 工具，需要写代码/跑命令时自动调用本机 DSH
+desc: |
+  给 AstrBot 的日常对话加一个 LLM 工具 dsh_task。普通聊天时，模型可以自己判断
+  是否需要把「写代码 / 执行命令 / 读写服务器文件 / 跑长任务」交给本机的 DeepSeek
+  Harness (DSH) 执行，并把结果拿回来继续回答。
+
+  与 astrbot_plugin_dsh（/dsh 命令桥）互补：那个是显式命令，这个是隐式工具。
+  需要先装好 astrbot_plugin_dsh 并配好 ingress 地址与 token（本插件直接复用它的配置），
+  也可以在本插件的配置里单独填写。
+version: 1.0.0
+author: yunliac
+# 联系邮箱：2903934386@qq.com
+repo: "https://github.com/yunliac/astrbot_plugin_dsh_tool"
+astrbot_version: ">=4.16"
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
+  - lark
+  - wecom
+social_link: "https://github.com/yunliac"
+tags:
+  - dsh
+  - deepseek-harness
+  - agent
+  - tool
+  - devtools
