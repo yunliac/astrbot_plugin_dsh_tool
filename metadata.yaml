@@ -13,8 +13,9 @@ desc: |
   1.1.0 起支持多会话并行：模型可以为不同任务指定不同的 DSH 会话（session），
   并用 background=true 立即返回，让多个任务同时跑，完成后把结果发回聊天。
   1.2.0 起可选空闲会话自动回收：保留历史与绑定，安全释放空闲 agent 资源。
-  此能力需要 ingress 配套释放接口，默认关闭。
-version: 1.2.0
+  1.2.1 起提供 AstrBot 拓展页会话管理：运行状态、长期保留与免回收开关、
+  QQ 内自动标记、记录导出；会话标记持久化在插件数据目录。
+version: 1.2.1
 author: yunliac
 # 联系邮箱：2903934386@qq.com
 repo: "https://github.com/yunliac/astrbot_plugin_dsh_tool"

@@ -31,6 +31,20 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.message_components import Plain
 from astrbot.api.star import Context, Star, StarTools, register
 
+try:  # 包内加载（AstrBot 插件管理器）
+    from .management import SessionManagementMixin
+    from .session_store import SessionStore
+    from .webui import register_webui, unregister_webui
+except ImportError:  # 直接按文件加载（测试 / 调试）
+    import sys
+
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    from management import SessionManagementMixin
+    from session_store import SessionStore
+    from webui import register_webui, unregister_webui
+
 try:  # AstrBot >= 4.16
     from astrbot.core.utils.astrbot_path import get_astrbot_config_path
 except Exception:  # pragma: no cover - 兼容旧版本
@@ -321,8 +335,8 @@ async def _call_ingress(
 # --------------------------------------------------------------------------- #
 
 
-@register(PLUGIN_NAME, "yunliac", "在日常对话中按需调用本机 DSH 的 LLM 工具", "1.2.0")
-class DshToolPlugin(Star):
+@register(PLUGIN_NAME, "yunliac", "在日常对话中按需调用本机 DSH 的 LLM 工具", "1.2.1")
+class DshToolPlugin(SessionManagementMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
@@ -334,6 +348,22 @@ class DshToolPlugin(Star):
         self._reaper_task: asyncio.Task | None = None
         self._reclaim_unsupported: set[str] = set()
         self._closing = False
+        self._management_lock = asyncio.Lock()
+        self.session_store = self._open_session_store()
+
+    def _open_session_store(self) -> SessionStore:
+        """Use AstrBot's plugin data dir; fall back to memory for tests only."""
+        path = None
+        try:
+            path = StarTools.get_data_dir(PLUGIN_NAME) / "sessions.json"
+        except Exception:
+            logger.warning("[dsh_task] 无法定位插件数据目录，会话标记仅保存在内存")
+        try:
+            return SessionStore(path)
+        except (OSError, ValueError, TypeError):
+            # Never overwrite a corrupt store: preserve user labels for manual recovery.
+            logger.exception("[dsh_task] 会话目录损坏，管理功能将以只读内存模式启动")
+            return SessionStore(None)
 
     def _reclaim_enabled(self) -> bool:
         return _as_bool(_conf(self.config, "idle_reclaim_enabled", False))
@@ -348,6 +378,13 @@ class DshToolPlugin(Star):
 
     async def initialize(self) -> None:
         self._ensure_reaper()
+        try:
+            if register_webui(self):
+                logger.info("[dsh_task] 会话管理页面已注册（AstrBot 拓展功能）")
+            else:
+                logger.warning("[dsh_task] 当前 AstrBot 不支持受保护的插件页面接口，扩展页不可用")
+        except Exception:
+            logger.exception("[dsh_task] 注册会话管理页面失败")
 
     def _ensure_reaper(self) -> None:
         if self._closing or not self._reclaim_enabled():
@@ -380,6 +417,8 @@ class DshToolPlugin(Star):
                         or self._session_activity.get(umo) is not record
                         or time.monotonic() - record["last_used"] < idle):
                     continue
+                if self.session_store.is_exempt(umo, record["session_id"]):
+                    continue  # User explicitly pinned this lane as resident.
                 base = record["base"]
                 if base in self._reclaim_unsupported:
                     continue
@@ -409,6 +448,11 @@ class DshToolPlugin(Star):
                         self._session_activity.pop(umo, None)
                         if not self._active_lanes.get(umo, 0):
                             self._lane_locks.pop(umo, None)
+                        try:
+                            self.session_store.mark_status(
+                                SessionStore.record_id(umo, base), "cold")
+                        except Exception:
+                            logger.debug("[dsh_task] 更新回收状态失败", exc_info=True)
                         logger.info("[dsh_task] 已回收空闲会话：%s", _short_id(record["session_id"]))
                 except (httpx.HTTPError, ValueError):
                     logger.warning("[dsh_task] 空闲释放失败，保留记录下轮重试", exc_info=True)
@@ -416,6 +460,10 @@ class DshToolPlugin(Star):
     async def terminate(self) -> None:
         """插件卸载 / 重载时取消还在跑的后台任务。"""
         self._closing = True
+        try:
+            unregister_webui(self)
+        except Exception:
+            logger.exception("[dsh_task] 注销会话管理页面失败")
         tasks = list(self._bg_tasks)
         if self._reaper_task is not None:
             tasks.append(self._reaper_task)
@@ -544,7 +592,11 @@ class DshToolPlugin(Star):
         lock = self._lane_locks.setdefault(umo, asyncio.Lock())
         try:
             async with lock:
-                return await self._dispatch_once(bases, token, payload, timeout, max_chars)
+                text, session_id = await self._dispatch_once(
+                    bases, token, payload, timeout, max_chars
+                )
+            self._record_outcome(umo, payload.get("text"), text, session_id)
+            return text, session_id
         finally:
             if umo in self._session_activity:
                 self._session_activity[umo]["last_used"] = time.monotonic()
@@ -579,6 +631,10 @@ class DshToolPlugin(Star):
                     "session_id": session_id, "base": base,
                     "last_used": time.monotonic(),
                 }
+                try:
+                    self._record_session(str(payload["umo"]), session_id, base, status="running")
+                except Exception:
+                    logger.exception("[dsh_task] 记录会话目录失败")
             if not text and error:
                 return f"DSH 调用失败：{error}", session_id
             if not text:
@@ -593,6 +649,23 @@ class DshToolPlugin(Star):
             "请确认 DSH 已启动、ingress 地址可访问，并在插件配置里填好 token。",
             "",
         )
+
+    def _record_outcome(self, umo: str, task: Any, text: str, session_id: str) -> None:
+        """Persist lane metadata and a bounded local exchange for export fallback."""
+        try:
+            record = self.session_store.find(umo)
+            if session_id:
+                bases, _, _, _ = self._resolve_settings()
+                record = self._record_session(
+                    umo, session_id, record["base"] if record else (bases[0] if bases else ""),
+                    status="idle",
+                )
+            elif record is not None:
+                record = self.session_store.mark_status(record["id"], "idle")
+            if record is not None and task and text:
+                self.session_store.append_exchange(record["id"], str(task), str(text))
+        except Exception:
+            logger.exception("[dsh_task] 更新会话目录失败")
 
     async def _send_to_chat(self, umo: str, text: str) -> None:
         for chunk in _chunk_text(text):
@@ -767,3 +840,37 @@ class DshToolPlugin(Star):
         if lane and session_id and not text.startswith("DSH "):
             text += f"\n\n[DSH 会话 {_short_id(session_id)} · 通道 {lane}]"
         return text
+
+    @filter.llm_tool(name="dsh_session")
+    async def dsh_session(
+        self,
+        event: AstrMessageEvent,
+        action: str,
+        session: str = "",
+        long_term: bool | None = None,
+        exempt: bool | None = None,
+    ) -> str:
+        """管理当前聊天里的 DSH 会话：列出会话，或修改“长期保留”和“免回收”标记。
+
+        只有用户**明确**要求保留、常驻、不要回收某个 DSH 会话时才调用。
+        “长期保留”只是持久化标记；“免回收”才会跳过空闲资源回收，让 agent 常驻。
+        两者独立，改一个不要顺手改另一个。目标不明确时先 list，不要猜。
+        普通聊天、只是提到“长期保留”但并非指 DSH 会话时，不要调用。
+
+        Args:
+            action(string): list=列出当前聊天的 DSH 会话；update=修改标记
+            session(string): 可选。目标会话的管理 ID、会话 ID、通道名或名称；当前聊天只有一个会话时可留空
+            long_term(boolean): 可选。true/false=设置或取消长期保留标记；不传表示不改
+            exempt(boolean): 可选。true/false=设置或取消免回收；不传表示不改
+        """
+        action = (action or "").strip().lower()
+        if action not in {"list", "update"}:
+            return "action 只支持 list 或 update。"
+        try:
+            return await self.manage_session_for_event(
+                event, action, session=(session or "").strip(),
+                long_term=long_term, exempt=exempt,
+            )
+        except Exception:
+            logger.exception("[dsh_task] 会话管理操作失败")
+            return "会话管理操作失败，未确认任何修改。请查看 AstrBot 日志。"

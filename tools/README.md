@@ -56,3 +56,20 @@ Content-Type: application/json
 该技巧依赖**上述精确实现语义**，不是通用 DSH API 的跨版本保证。绝不能改成在维护回调中 `await handle.dispose()`。外部网页/其他同进程插件不受 ingress gate 控制；同步 claim + 同步 disposed 取消阻止释放竞态中的驱动重新唤醒，但其他持有旧 Agent 引用的代码仍须遵守宿主生命周期规则。
 
 释放只解除可回收对象与作用域资源的引用，不保证 Node/V8 立即降低 RSS；共享缓存、其他插件引用、浏览器内存或仍活跃的独立子 agent 不在本端点的释放承诺内。
+
+## 可选会话读取接口（1.2.1）
+
+`sessions` 管理页需要只读接口 `/sessions/managed` 与 `/sessions/history`。生成器
+`patch_ingress_sessions.py` 必须叠加在**已安装的 release 补丁之后**：
+
+```sh
+python tools/patch_ingress_release.py /path/to/original-index.js /tmp/index.release.mjs
+python tools/patch_ingress_sessions.py /tmp/index.release.mjs /tmp/index.sessions.mjs
+node --check /tmp/index.sessions.mjs
+```
+
+- 两个 GET 都要求原有 Bearer / X-DSH-Token；只允许 `tool:` 前缀绑定，`sessionId` 必须与当前绑定完全一致。
+- `/sessions/managed` 最多返回 200 条，仅列出绑定、标题、cwd、状态和最近活动，不读取完整日志。
+- `/sessions/history` 默认 100 条、最多 200 条，单条 16 KiB、总计 256 KiB；限制并发与频率，超大历史返回 413。
+- 接口**不唤醒 agent**、不计入 release gate、不修改绑定或回收活动时间。
+- 没有安装本补丁时，管理页仍可显示本地标记，导出会回退到本地任务摘要并明确标注。

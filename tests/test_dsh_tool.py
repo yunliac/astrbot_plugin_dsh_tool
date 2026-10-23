@@ -668,6 +668,80 @@ def test_capability_hint_respects_tool_selection_and_permission():
     run(scenario())
 
 
+def test_session_flags_export_and_reclaim_exemption():
+    async def scenario():
+        plugin = main.DshToolPlugin(None, {
+            "ingress_url": "http://127.0.0.1:9", "idle_reclaim_enabled": True,
+            "idle_timeout_sec": 60})
+        umo = "tool:test:FriendMessage:1#deploy"
+        record = plugin._record_session(
+            umo, "session-deploy", "http://127.0.0.1:9", status="idle")
+        assert record["long_term"] is False and record["exempt"] is False
+        assert "token" not in record and "base" in record
+
+        updated = await plugin.update_managed_session(record["id"], long_term=True)
+        assert updated["long_term"] is True and updated["exempt"] is False
+        # long_term is only a durable label; it must not disable reclaim.
+        assert plugin.session_store.is_exempt(umo, "session-deploy") is False
+
+        await plugin.update_managed_session(record["id"], exempt=True)
+        assert plugin.session_store.is_exempt(umo, "session-deploy") is True
+        plugin.session_store.append_exchange(record["id"], "检查磁盘", "剩余 10G")
+
+        plugin._session_activity[umo] = {
+            "base": "http://127.0.0.1:9", "session_id": "session-deploy",
+            "last_used": main.time.monotonic() - 61}
+        calls = []
+        class Client:
+            def __init__(self, **kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def post(self, url, **kwargs):
+                calls.append(url)
+                return main.httpx.Response(200, json={"ok": True, "released": True,
+                    "sessionId": "session-deploy"}, request=main.httpx.Request("POST", url))
+        with patch.object(main.httpx, "AsyncClient", Client):
+            await plugin._reclaim_idle_sessions()
+            assert not calls, "exempt sessions must not be reclaimed"
+
+            await plugin.update_managed_session(record["id"], exempt=False)
+            await plugin._reclaim_idle_sessions()
+            assert calls and calls[-1].endswith("/session/release")
+            assert plugin.session_store.get(record["id"])["status"] == "cold"
+
+        exported = await plugin.export_managed_session(record["id"], "markdown")
+        assert "检查磁盘" in exported["content"] and "剩余 10G" in exported["content"]
+        exported_json = await plugin.export_managed_session(record["id"], "json")
+        payload = json.loads(exported_json["content"])
+        assert payload["messages"][0]["role"] == "user"
+        listing = await plugin.list_managed_sessions()
+        row = next(item for item in listing["sessions"] if item["id"] == record["id"])
+        assert "base" not in row and "umo" in row
+        assert listing["idle"]["enabled"] is True
+        await plugin.terminate()
+    run(scenario())
+
+
+def test_management_tool_rejects_ambiguous_targets():
+    async def scenario():
+        plugin = main.DshToolPlugin(None, {"ingress_url": "http://127.0.0.1:9"})
+        event = FakeEvent()
+        event.unified_msg_origin = "test:group:123"
+        for channel in ("a", "b"):
+            plugin._record_session(f"tool:test:group:123#{channel}", f"session-{channel}",
+                                   "http://127.0.0.1:9", status="idle")
+        result = await plugin.dsh_session(event, "update", long_term=True)
+        assert "不明确" in result
+        assert all(not row["long_term"] for row in plugin.session_store.list())
+        result = await plugin.dsh_session(event, "update", session="a", exempt=True)
+        assert '"exempt": true' in result
+        assert plugin.session_store.is_exempt("tool:test:group:123#a")
+        result = await plugin.dsh_session(event, "list")
+        assert "session-a" in result or '"a"' in result
+        await plugin.terminate()
+    run(scenario())
+
+
 if __name__ == "__main__":
     failures = 0
     for name, func in sorted(globals().items()):

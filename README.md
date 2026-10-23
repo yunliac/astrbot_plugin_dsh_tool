@@ -163,6 +163,42 @@ dsh_task(task="...C...", session="c", background=true)
 补丁只能回收它自己创建/恢复并持有句柄的 agent；网页或补丁前已加载的会话会安全跳过。
 **仅更新 AstrBot 插件而未安装 ingress 支持，不会实际释放 DSH 资源。**
 
+## 会话管理页面（1.2.1）
+
+插件安装后会在 AstrBot「拓展功能」里出现 **DSH 会话管理**页面，无需另开端口：
+
+- 查看日常对话用过的 DSH 会话、来源、运行状态、最近使用和空闲倒计时；
+- 搜索标题 / 通道 / 会话 ID，按运行、等待、空闲、冷会话筛选；
+- 独立开关 **长期保留** 与 **免回收**，也可以给会话改名；
+- 导出会话记录（Markdown / JSON）；
+- 页面通过 AstrBot 登录鉴权，再用ingress token 在服务端读取；浏览器拿不到 token。
+
+### 两个开关的区别
+
+| 开关 | 作用 |
+|---|---|
+| 长期保留 | 持久化保存该会话的管理标记，便于筛选和后续管理；**不等于常驻** |
+| 免回收 | 跳过空闲资源回收，让该会话的 agent 尽量保持加载 |
+
+标记保存在 `<AstrBot>/data/plugin_data/astrbot_plugin_dsh_tool/sessions.json`，
+AstrBot 重启后仍然有效。远端刷新不会覆盖用户设置的标记。
+
+### 在 QQ 里自动标记
+
+用户明确说“这个 DSH 会话长期保留 / 不要自动回收”时，模型可以调用 `dsh_session`：
+
+```text
+dsh_session(action="update", session="部署维护", long_term=true)
+```
+
+目标不明确（同一聊天有多个会话且没有指明）时会拒绝猜测。普通聊天里提到“长期保留”但并非指 DSH 会话，不应触发。
+
+### 导出说明
+
+优先读取 DSH 的真实历史；如果 ingress 未安装会话读取接口或历史不可用，则导出插件本地记录的
+“任务 / 返回摘要”，并在文件里明确标注，不会冒充完整 DSH 历史。
+会话读取接口是**可选**的，见[补丁工具说明](tools/README.md)。
+
 ## 权限与安全
 
 > **这个插件等于让聊天模型在你宿主机上执行任意命令。** 请务必：
@@ -234,9 +270,15 @@ dsh_task(task="...C...", session="c", background=true)
 
 ```text
 astrbot_plugin_dsh_tool/
-├── main.py            # 插件实现
-├── _conf_schema.json  # 配置 schema
-├── metadata.yaml      # 插件元数据
+├── main.py            # 插件实现与 dsh_task / dsh_session 工具
+├── management.py      # 会话管理数据接口
+├── session_store.py   # 标记与本地摘要的持久化
+├── webui.py           # 受 AstrBot 登录鉴权的管理接口
+├── views/dsh/         # 拓展功能页面
+├── tools/             # 可选的 ingress 补丁生成器
+├── tests/             # 回归测试
+├── _conf_schema.json
+├── metadata.yaml
 ├── requirements.txt
 ├── CHANGELOG.md
 ├── README.md
