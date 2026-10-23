@@ -1,5 +1,7 @@
 # DSH 工具（日常对话）
 
+> **开发状态：本插件目前仍处于初步开发阶段，部分功能可能存在问题或尚不完善。使用过程中如遇到异常、功能失效或有改进建议，欢迎通过 [GitHub Issues](https://github.com/yunliac/astrbot_plugin_dsh_tool/issues) 反馈。反馈时请尽量附上插件版本、复现步骤和已脱敏的错误日志，切勿公开 token、API key 等敏感信息。**
+
 给 AstrBot 的**日常聊天**加一个 LLM 工具 `dsh_task`：模型自己判断什么时候该「动真格」，把写代码、执行命令、读写服务器文件、跑长任务这些活交给本机的 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 执行，再把结果拿回来继续回答。
 
 支持**多会话并行**：同一个对话里，模型可以为不同任务开不同的 DSH 会话，互不阻塞；后台任务完成后再把结果发回聊天。
