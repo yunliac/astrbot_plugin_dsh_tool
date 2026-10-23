@@ -73,3 +73,19 @@ node --check /tmp/index.sessions.mjs
 - `/sessions/history` 默认 100 条、最多 200 条，单条 16 KiB、总计 256 KiB；限制并发与频率，超大历史返回 413。
 - 接口**不唤醒 agent**、不计入 release gate、不修改绑定或回收活动时间。
 - 没有安装本补丁时，管理页仍可显示本地标记，导出会回退到本地任务摘要并明确标注。
+
+### 网页对话预览补丁
+
+在上述生成文件之后继续运行：
+
+```sh
+python tools/patch_ingress_preview.py /tmp/index.sessions.mjs /tmp/index.preview.mjs
+node --check /tmp/index.preview.mjs
+python tools/test_patch_ingress_preview.py
+```
+
+新增鉴权只读 `GET /sessions/preview?umo=...&sessionId=...&cursor=0:0`，
+从头向后读取用户/助手正文，每页最多 50 段 / 256 KiB，长消息按字符分段。
+响应中的 `next_cursor` 为空表示本次快照已读到末尾；`complete` 不代表包含工具或附件原文。
+保留 8 MiB 冷日志限制，每分钟最多 60 次、并发 2 次；不唤醒 agent。
+此补丁与导出接口独立，导出接口原有条数限制不变。

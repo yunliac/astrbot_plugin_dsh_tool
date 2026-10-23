@@ -123,7 +123,20 @@ def register_webui(plugin: Any) -> bool:
                     "content_type": "application/json;charset=utf-8" if fmt == "json" else "text/markdown;charset=utf-8"}
         return await invoke(operation)
 
+    async def preview():
+        async def operation():
+            sid = _sid(request.query.get("id"))
+            cursor = request.query.get("cursor", "")
+            if not isinstance(cursor, str) or len(cursor) > 64:
+                raise ValueError("invalid cursor")
+            result = await plugin.preview_managed_session(sid, cursor)
+            # Explicit response allowlist: no ingress address or configuration.
+            return {key: result[key] for key in (
+                "session_id", "title", "source", "messages", "next_cursor", "complete", "notice")}
+        return await invoke(operation)
+
     routes = [
+        (f"/{PLUGIN_NAME}/sessions/preview", preview, ["GET"], "DSH 分页预览会话正文"),
         (f"/{PLUGIN_NAME}/sessions", sessions, ["GET"], "DSH 会话列表"),
         (f"/{PLUGIN_NAME}/sessions/refresh", refresh, ["POST"], "DSH 刷新运行状态"),
         (f"/{PLUGIN_NAME}/sessions/update", update, ["POST"], "DSH 独立保留与回收开关"),

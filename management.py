@@ -81,6 +81,41 @@ class SessionManagementMixin:
         result.pop("base", None)
         return result
 
+    async def preview_managed_session(self, record_id: str, cursor: str = "") -> dict:
+        if not isinstance(cursor, str) or len(cursor) > 64:
+            raise ValueError("invalid cursor")
+        record = self.session_store.get(record_id)
+        if record is None:
+            raise KeyError(record_id)
+        try:
+            data, _ = await self._management_request("/sessions/preview", {
+                "umo": record["umo"], "sessionId": record["session_id"], "cursor": cursor})
+            if not isinstance(data.get("messages"), list):
+                raise ValueError("invalid preview")
+            return {"session_id": record["session_id"], "title": record.get("title", ""),
+                    "source": "dsh", "messages": data["messages"],
+                    "next_cursor": data.get("next_cursor"), "complete": data.get("complete") is True,
+                    "notice": data.get("notice", "")}
+        except (httpx.HTTPError, RuntimeError):
+            # Never silently restart pagination against a different data source.
+            if cursor and not cursor.startswith("local:"):
+                raise RuntimeError("历史读取中断，请重新打开会话")
+        if cursor and not cursor.startswith("local:"):
+            raise ValueError("invalid cursor")
+        offset = int(cursor.removeprefix("local:")) if cursor else 0
+        if offset < 0:
+            raise ValueError("invalid cursor")
+        messages = []
+        for exchange in self.session_store.transcript(record_id):
+            messages.extend([{"role": "user", "content": exchange.get("task", "")},
+                             {"role": "assistant", "content": exchange.get("result", "")}])
+        end = offset + 50
+        return {"session_id": record["session_id"], "title": record.get("title", ""),
+                "source": "local_fallback", "messages": messages[offset:end],
+                "next_cursor": f"local:{end}" if end < len(messages) else None,
+                "complete": False,
+                "notice": "远端历史不可用；这里只显示本地任务与返回摘要，不是完整 DSH 对话。"}
+
     async def export_managed_session(self, record_id: str, format: str = "markdown") -> dict:
         if format not in ("markdown", "json"):
             raise ValueError("导出格式只支持 markdown 或 json")
