@@ -494,7 +494,9 @@ class DshToolPlugin(SessionManagementMixin, Star):
             "不要让用户代为执行命令或反复确认工具是否存在。"
             "只询问能否连接时可用 task='/status' 检查；"
             "要查服务器软件/日志/配置必须传完整任务让 DSH 实际执行。"
-            "不要声称执行成功，除非工具结果证实。并行时使用不同 session 和 background=true。\n"
+            "不要声称执行成功，除非工具结果证实。并行时使用不同 session 和 background=true。"
+            "用户明确要求把某个 DSH 会话长期保留、常驻或不要自动回收时，"
+            "调用 dsh_session 标记；目标不明确就先 list，不要猜。\n"
         )
         req.system_prompt = (getattr(req, "system_prompt", None) or "") + hint
 

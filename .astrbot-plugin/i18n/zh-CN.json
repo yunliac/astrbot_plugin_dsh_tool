@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "display_name": "DSH 工具（日常对话）"
+  },
+  "views": {
+    "dsh": {
+      "title": "DSH 会话管理"
+    }
+  }
+}
