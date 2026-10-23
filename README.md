@@ -300,5 +300,4 @@ astrbot_plugin_dsh_tool/
 ## 联系
 
 作者：**yunliac**  
-邮箱：**2903934386@qq.com**  
 GitHub：<https://github.com/yunliac>
