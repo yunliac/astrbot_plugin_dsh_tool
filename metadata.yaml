@@ -9,7 +9,10 @@ desc: |
   与 astrbot_plugin_dsh（/dsh 命令桥）互补：那个是显式命令，这个是隐式工具。
   需要先装好 astrbot_plugin_dsh 并配好 ingress 地址与 token（本插件直接复用它的配置），
   也可以在本插件的配置里单独填写。
-version: 1.0.0
+
+  1.1.0 起支持多会话并行：模型可以为不同任务指定不同的 DSH 会话（session），
+  并用 background=true 立即返回，让多个任务同时跑，完成后把结果发回聊天。
+version: 1.1.0
 author: yunliac
 # 联系邮箱：2903934386@qq.com
 repo: "https://github.com/yunliac/astrbot_plugin_dsh_tool"
@@ -27,3 +30,4 @@ tags:
   - agent
   - tool
   - devtools
+  - parallel

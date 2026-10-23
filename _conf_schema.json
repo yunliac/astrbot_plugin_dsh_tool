@@ -29,6 +29,12 @@
     "type": "int",
     "default": 6000
   },
+  "max_parallel": {
+    "description": "后台并行任务上限",
+    "hint": "同一时间最多允许多少个 background=true 的任务在跑（1-20）。每个任务对应一条独立的 DSH 会话，太多会抢 CPU/内存。",
+    "type": "int",
+    "default": 3
+  },
   "admin_only": {
     "description": "仅管理员可调用",
     "hint": "关闭后所有能触发 LLM 的用户都可以让 DSH 在服务器上执行命令，风险很高，建议保持开启。",
