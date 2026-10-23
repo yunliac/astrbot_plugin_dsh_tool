@@ -35,6 +35,24 @@
     "type": "int",
     "default": 3
   },
+  "idle_reclaim_enabled": {
+    "description": "启用空闲 DSH 会话资源回收",
+    "hint": "默认关闭。需要 ingress 支持配套 /session/release 接口；只卸载空闲 agent，保留历史和通道绑定。旧 ingress 自动跳过，不用 /end 冒充回收。",
+    "type": "bool",
+    "default": false
+  },
+  "idle_timeout_sec": {
+    "description": "会话空闲多久后回收（秒）",
+    "hint": "从本插件最近一次任务结束计时，默认 1800 秒（30 分钟），范围 60–604800。执行中或等待中的会话不会被强行回收。",
+    "type": "int",
+    "default": 1800
+  },
+  "idle_check_interval_sec": {
+    "description": "空闲回收检查间隔（秒）",
+    "hint": "默认每 60 秒检查一次，范围 10–3600。达到空闲阈值后通常在下一轮检查回收。",
+    "type": "int",
+    "default": 60
+  },
   "admin_only": {
     "description": "仅管理员可调用",
     "hint": "关闭后所有能触发 LLM 的用户都可以让 DSH 在服务器上执行命令，风险很高，建议保持开启。",

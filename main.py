@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import uuid
 from typing import Any
 
@@ -320,17 +321,104 @@ async def _call_ingress(
 # --------------------------------------------------------------------------- #
 
 
-@register(PLUGIN_NAME, "yunliac", "在日常对话中按需调用本机 DSH 的 LLM 工具", "1.1.0")
+@register(PLUGIN_NAME, "yunliac", "在日常对话中按需调用本机 DSH 的 LLM 工具", "1.2.0")
 class DshToolPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
         self._bg_tasks: set[asyncio.Task] = set()
         self._bg_lanes: set[str] = set()
+        self._session_activity: dict[str, dict[str, Any]] = {}
+        self._active_lanes: dict[str, int] = {}
+        self._lane_locks: dict[str, asyncio.Lock] = {}
+        self._reaper_task: asyncio.Task | None = None
+        self._reclaim_unsupported: set[str] = set()
+        self._closing = False
+
+    def _reclaim_enabled(self) -> bool:
+        return _as_bool(_conf(self.config, "idle_reclaim_enabled", False))
+
+    def _idle_timeout(self) -> float:
+        return max(60, min(604800, _as_positive_int(
+            _conf(self.config, "idle_timeout_sec", 1800), 1800)))
+
+    def _reclaim_interval(self) -> float:
+        return max(10.0, min(3600.0, _as_positive_float(
+            _conf(self.config, "idle_check_interval_sec", 60), 60)))
+
+    async def initialize(self) -> None:
+        self._ensure_reaper()
+
+    def _ensure_reaper(self) -> None:
+        if self._closing or not self._reclaim_enabled():
+            return
+        if self._reaper_task is None or self._reaper_task.done():
+            self._reaper_task = asyncio.create_task(self._reaper_loop())
+
+    async def _reaper_loop(self) -> None:
+        while not self._closing:
+            await asyncio.sleep(self._reclaim_interval())
+            try:
+                await self._reclaim_idle_sessions()
+            except Exception:
+                logger.exception("[dsh_task] 空闲会话检查失败，下轮重试")
+
+    async def _reclaim_idle_sessions(self) -> None:
+        if not self._reclaim_enabled() or self._closing:
+            return
+        idle = self._idle_timeout()
+        for umo, record in list(self._session_activity.items()):
+            if self._closing or not self._reclaim_enabled():
+                return
+            if self._active_lanes.get(umo, 0) or umo in self._bg_lanes:
+                continue
+            if time.monotonic() - record["last_used"] < idle:
+                continue
+            lock = self._lane_locks.setdefault(umo, asyncio.Lock())
+            async with lock:
+                if (self._active_lanes.get(umo, 0) or umo in self._bg_lanes
+                        or self._session_activity.get(umo) is not record
+                        or time.monotonic() - record["last_used"] < idle):
+                    continue
+                base = record["base"]
+                if base in self._reclaim_unsupported:
+                    continue
+                # Resolve current credentials; never persist tokens in activity records.
+                bases, token, _, _ = self._resolve_settings()
+                if base not in bases:
+                    continue
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                try:
+                    async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                        response = await client.post(
+                            f"{base}/session/release", headers=headers,
+                            json={"umo": umo, "sessionId": record["session_id"],
+                                  "idle_seconds": idle})
+                    if response.status_code in (404, 405, 501):
+                        self._reclaim_unsupported.add(base)
+                        logger.warning("[dsh_task] ingress 不支持安全空闲释放；已跳过。"
+                                       "请安装配套兼容补丁并重载本插件。")
+                        continue
+                    if response.status_code == 409:
+                        continue  # Busy, not owned, or binding changed: fail closed.
+                    response.raise_for_status()
+                    result = response.json()
+                    if (isinstance(result, dict)
+                            and result.get("ok") is True and result.get("released") is True
+                            and result.get("sessionId") == record["session_id"]):
+                        self._session_activity.pop(umo, None)
+                        if not self._active_lanes.get(umo, 0):
+                            self._lane_locks.pop(umo, None)
+                        logger.info("[dsh_task] 已回收空闲会话：%s", _short_id(record["session_id"]))
+                except (httpx.HTTPError, ValueError):
+                    logger.warning("[dsh_task] 空闲释放失败，保留记录下轮重试", exc_info=True)
 
     async def terminate(self) -> None:
         """插件卸载 / 重载时取消还在跑的后台任务。"""
+        self._closing = True
         tasks = list(self._bg_tasks)
+        if self._reaper_task is not None:
+            tasks.append(self._reaper_task)
         for task in tasks:
             task.cancel()
         if tasks:
@@ -419,6 +507,31 @@ class DshToolPlugin(Star):
     # -- 调用 ------------------------------------------------------------- #
 
     async def _dispatch(
+        self, bases: list[str], token: str, payload: dict[str, Any],
+        timeout: float, max_chars: int,
+    ) -> tuple[str, str]:
+        self._ensure_reaper()
+        umo = str(payload.get("umo", ""))
+        if not umo:
+            return await self._dispatch_once(bases, token, payload, timeout, max_chars)
+        # Count queued calls too: the collector must never slip in between turns.
+        self._active_lanes[umo] = self._active_lanes.get(umo, 0) + 1
+        lock = self._lane_locks.setdefault(umo, asyncio.Lock())
+        try:
+            async with lock:
+                return await self._dispatch_once(bases, token, payload, timeout, max_chars)
+        finally:
+            if umo in self._session_activity:
+                self._session_activity[umo]["last_used"] = time.monotonic()
+            remaining = self._active_lanes[umo] - 1
+            if remaining:
+                self._active_lanes[umo] = remaining
+            else:
+                self._active_lanes.pop(umo, None)
+                if umo not in self._session_activity:
+                    self._lane_locks.pop(umo, None)
+
+    async def _dispatch_once(
         self,
         bases: list[str],
         token: str,
@@ -436,6 +549,11 @@ class DshToolPlugin(Star):
                 failures.append(f"{base}（{exc.__class__.__name__}）")
                 continue
 
+            if session_id and payload.get("umo"):
+                self._session_activity[str(payload["umo"])] = {
+                    "session_id": session_id, "base": base,
+                    "last_used": time.monotonic(),
+                }
             if not text and error:
                 return f"DSH 调用失败：{error}", session_id
             if not text:

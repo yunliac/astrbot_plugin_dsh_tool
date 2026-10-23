@@ -58,6 +58,9 @@ Bot ：（分别用 session="logs" / "tests" / "disk" + background=true 提交�
 | `timeout_sec` | int | `900` | 等待 DSH 结果的超时（按流空闲时间算） |
 | `max_result_chars` | int | `6000` | 返回给模型的结果最大字符数，超出截断 |
 | `max_parallel` | int | `3` | 同时运行的后台任务上限（1–20） |
+| `idle_reclaim_enabled` | bool | `false` | 空闲会话资源回收开关，需要 ingress 配套支持 |
+| `idle_timeout_sec` | int | `1800` | 任务结束后空闲多久回收（秒，60–604800） |
+| `idle_check_interval_sec` | int | `60` | 检查间隔（秒，10–3600） |
 | `admin_only` | bool | `true` | 仅管理员可调用 |
 | `allow_users` | list | `[]` | 额外允许的用户 ID（非管理员也可调用） |
 
@@ -98,7 +101,7 @@ DSH ingress 用 `umo` 区分会话：一个 `umo` 对应一条 DSH 会话。插�
 |---|---|---|
 | 留空 / `auto` | `tool:<umo>` | 当前对话的默认会话（与 1.0 行为一致） |
 | `build`（任意短名） | `tool:<umo>#build` | **同名复用**同一条 DSH 会话，上下文延续 |
-| `new` | `tool:<umo>#new-<随机>` | 每次新开一条，用完即弃 |
+| `new` | `tool:<umo>#new-<随机>` | 每次新开一条，不自动删除历史；可启用空闲资源回收 |
 
 配合 `background=true`：
 
@@ -120,6 +123,45 @@ dsh_task(task="...C...", session="c", background=true)
 > 注意：同一个通道**不能**并发。ingress 收到同一会话的新消息时，会中断上一条正在推送的回合（DSH 里那轮可能还在跑）。所以并行任务一定要用不同的 `session` 名字，或直接用 `new`。
 >
 > `background=false`（默认）会一直等到 DSH 跑完才返回，因此同一轮里连续调用多个工具仍是串行的；要并行必须用 `background=true`。
+
+## 空闲会话自动回收（1.2.0）
+
+在 AstrBot 插件配置中打开 **启用空闲 DSH 会话资源回收**，例如：
+
+```json
+{
+  "idle_reclaim_enabled": true,
+  "idle_timeout_sec": 1800,
+  "idle_check_interval_sec": 60
+}
+```
+
+默认关闭，启用后每分钟检查一次，任务结束后连续空闲 30 分钟才尝试回收。
+保存配置后重载插件生效。关闭开关不会主动释放任何会话，也不会恢复已经卸载的 agent；下次调用时自动恢复。
+
+- **保留聊天历史和通道绑定**，只卸载 DSH agent 的内存资源；下次使用相同通道会从历史恢复，可能有短暂加载时间。
+- 只管理本次插件加载以来，通过 `dsh_task` 返回过会话 ID 的会话。重启后不扫描/接管已有的 DSH 会话，也不清理历史文件或主动结束脱离 agent 管理的 shell 进程。
+- 前台执行、后台执行、同通道排队的请求不回收。服务端还会检查运行/维护/审批/问题等待等状态，不确定就跳过。
+- 并发任务可能仍共享工作目录；会话隔离不等于文件系统隔离。
+- 回收失败保留记录并在下一轮重试，只有服务端确认释放了对应会话后才移除本地活动记录。
+
+### 需要 ingress 配套接口
+
+现有 `dsh-astrbot-ingress` 0.3.23 的 `/end` **只解除绑定，不释放 agent 内存**。
+因此本插件不使用 `/end` 假装回收，而是调用鉴权的 `POST /session/release`：
+
+```json
+{"umo": "tool:<umo>#build", "sessionId": "session-...", "idle_seconds": 1800}
+```
+
+接口必须验证会话 ID 与绑定仍然一致、会话确实空闲且由 ingress 自己持有可释放句柄，
+再调用官方 `AgentHandle.dispose()`；成功返回 `{"ok":true,"released":true,"sessionId":"session-..."}`。
+绑定与磁盘历史保留。插件对旧接口的 404/405/501 仅警告一次并跳过，普通任务不受影响；
+安装支持后重载 AstrBot 插件以重新检测。
+
+仓库附带[独立兼容补丁生成工具和说明](tools/README.md)。它只生成新文件，不自动覆盖已安装 ingress，不自动重启 DSH。
+补丁只能回收它自己创建/恢复并持有句柄的 agent；网页或补丁前已加载的会话会安全跳过。
+**仅更新 AstrBot 插件而未安装 ingress 支持，不会实际释放 DSH 资源。**
 
 ## 权限与安全
 
