@@ -6,5 +6,10 @@
     "dsh": {
       "title": "DSH 会话管理"
     }
+  },
+  "pages": {
+    "dsh": {
+      "title": "DSH 会话管理"
+    }
   }
 }
