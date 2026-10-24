@@ -146,7 +146,20 @@ def register_webui(plugin: Any) -> bool:
             return data
         return await invoke(operation)
 
+    async def scan_connection():
+        return await invoke(plugin.scan_connections)
+
+    async def apply_connection():
+        async def operation():
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) != {'id'} or not isinstance(body['id'], str):
+                raise ValueError('invalid scan candidate')
+            return await plugin.apply_connection_scan(body['id'])
+        return await invoke(operation)
+
     routes = [
+        (f"/{PLUGIN_NAME}/connection/scan", scan_connection, ["POST"], "测试功能：手动扫描DSH连接"),
+        (f"/{PLUGIN_NAME}/connection/apply", apply_connection, ["POST"], "测试功能：确认保存扫描连接"),
         (f"/{PLUGIN_NAME}/sessions/runtime", runtime, ["GET"], "DSH 只读运行证据"),
         (f"/{PLUGIN_NAME}/sessions/preview", preview, ["GET"], "DSH 分页预览会话正文"),
         (f"/{PLUGIN_NAME}/sessions", sessions, ["GET"], "DSH 会话列表"),

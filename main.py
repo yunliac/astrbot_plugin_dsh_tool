@@ -32,6 +32,7 @@ from astrbot.api.message_components import Plain
 from astrbot.api.star import Context, Star, StarTools, register
 
 try:  # 包内加载（AstrBot 插件管理器）
+    from .connection_scan import ConnectionScanMixin
     from .progress_reporting import ProgressReportingMixin
     from .runtime_tools import RuntimeToolsMixin
     from .management import SessionManagementMixin
@@ -43,6 +44,7 @@ except ImportError:  # 直接按文件加载（测试 / 调试）
     _HERE = os.path.dirname(os.path.abspath(__file__))
     if _HERE not in sys.path:
         sys.path.insert(0, _HERE)
+    from connection_scan import ConnectionScanMixin
     from progress_reporting import ProgressReportingMixin
     from runtime_tools import RuntimeToolsMixin
     from management import SessionManagementMixin
@@ -298,7 +300,7 @@ async def _call_ingress(
 
 
 @register(PLUGIN_NAME, "yunliac", "DSH 任务、独立命令与只读运行进度", "2.0.0-beta")
-class DshToolPlugin(ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
+class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
