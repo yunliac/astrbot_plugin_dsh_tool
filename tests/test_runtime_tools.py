@@ -51,6 +51,9 @@ class Event:
     def get_message_str(self):
         return self.message
 
+    def should_call_llm(self, enabled):
+        self.call_llm = enabled
+
     def plain_result(self, text):
         return text
 
@@ -296,12 +299,13 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.p.calls[-1], ('action', 'new', 'new', task, ''))
 
     async def test_official_command_entry_and_invalid_parsing(self):
-        self.assertEqual(self.p.dsh_command.command_name, 'dsh')
-        self.assertEqual(self.p.dsh_command.aliases, set())
+        # AstrBot's decorator belongs on the main-module wrapper, not the mixin.
+        self.assertFalse(hasattr(self.p.dsh_command, 'command_name'))
         self.assertEqual(self.p.dsh_progress.tool_name, 'dsh_progress')
         self.e.message = '/dsh run --session "missing lane" task'
         results = [x async for x in self.p.dsh_command(self.e)]
         self.assertEqual(json.loads(results[0])['error'], 'target_required')
+        self.assertIs(self.e.call_llm, False)
         self.e.message = '/invalid new no'
         self.assertIn('/dsh help', [x async for x in self.p.dsh_command(self.e)][0])
         self.assertIn('格式', await self.command('run "unterminated'))

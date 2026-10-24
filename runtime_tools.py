@@ -278,9 +278,11 @@ class RuntimeToolsMixin:
         except Exception:
             return 'DSH 命令调用失败；未确认操作成功，请检查服务状态。'
 
-    @filter.command('dsh', alias=set())
     async def dsh_command(self, event: AstrMessageEvent):
         """Independent /dsh command entry, without legacy bridge imports."""
+        # Explicit commands never enter AstrBot's default model chain, including
+        # permission refusals/errors. Send the result before stopping propagation.
+        event.should_call_llm(False)
         allowed, reason = self._runtime_permission(event)
         if not allowed:
             yield event.plain_result(reason)

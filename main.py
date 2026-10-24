@@ -348,6 +348,15 @@ class DshToolPlugin(RuntimeToolsMixin, SessionManagementMixin, Star):
         except Exception:
             logger.exception("[dsh_task] 注册会话管理页面失败")
 
+    @filter.command('dsh', alias=set())
+    async def dsh_command(self, event: AstrMessageEvent):
+        """直接控制 DSH，不经 AstrBot LLM。声明在主模块以正确绑定插件实例。"""
+        try:
+            async for result in RuntimeToolsMixin.dsh_command(self, event):
+                yield result
+        finally:
+            event.stop_event()
+
     def _ensure_reaper(self) -> None:
         if self._closing or not self._reclaim_enabled():
             return
