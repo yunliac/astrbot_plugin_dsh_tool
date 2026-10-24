@@ -171,6 +171,41 @@ def close(server):
 # --------------------------------------------------------------------------- #
 # 测试
 # --------------------------------------------------------------------------- #
+def test_incomplete_stream_not_success():
+    server = make_server([sse('ack', {'sessionId':'s1'}), sse('text', {'text':'partial'})])
+    try:
+        text, error, sid = run(main._call_ingress(f'http://127.0.0.1:{server.server_port}', 'secret', {}, 10, 6000))
+        assert text == 'partial'
+        assert '未收到结束事件' in error
+    finally:
+        close(server)
+
+
+def test_refresh_reconciles_missing_and_changed_bindings():
+    async def scenario():
+        plugin = main.DshToolPlugin(None, {})
+        old = plugin._record_session('tool:chat', 'old', 'http://test', status='running')
+        plugin._session_activity['tool:chat'] = {'session_id':'old', 'base':'http://test', 'last_used':0}
+        async def empty(*args): return {'ok':True, 'sessions':[]}, 'http://test'
+        plugin._management_request = empty
+        result = await plugin.refresh_managed_sessions()
+        assert result['sessions'][0]['status'] == 'unknown'
+        async def changed(*args): return {'ok':True, 'sessions':[{'umo':'tool:chat', 'sessionId':'new','status':'idle'}]}, 'http://test'
+        plugin._management_request = changed
+        await plugin.refresh_managed_sessions()
+        assert plugin._session_activity['tool:chat']['session_id'] == 'new'
+        plugin._max_parallel = lambda: 0
+        # No submission on rejection must not claim success.
+        async def refuse(*args, **kwargs): return 'refused'
+        plugin.dsh_task = refuse
+        event = types.SimpleNamespace(unified_msg_origin='chat')
+        plugin._check_permission = lambda e: (True, '')
+        result = await plugin._runtime_action(event, 'new', text='test')
+        assert result['ok'] is False
+        await plugin.terminate()
+    run(scenario())
+
+
 def test_basic_stream():
     server = make_server(
         [

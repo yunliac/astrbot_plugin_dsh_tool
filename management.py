@@ -33,7 +33,11 @@ class SessionManagementMixin:
         if action == 'new':
             if not text.strip():
                 return {'ok': False, 'error': 'task_required'}
-            return {'ok': True, 'message': await self.dsh_task(event, text, session='new', background=True)}
+            before = set(self._bg_tasks)
+            message = await self.dsh_task(event, text, session='new', background=True)
+            submitted = bool(set(self._bg_tasks) - before)
+            return {'ok': submitted, 'message': message,
+                    **({} if submitted else {'error': 'submission_refused'})}
         record = self.session_store.get(session)
         if not record or record.get('origin') != origin:
             return {'ok': False, 'error': 'session_not_found'}
@@ -86,6 +90,7 @@ class SessionManagementMixin:
 
     async def refresh_managed_sessions(self) -> dict:
         available, message = False, ""
+        observed = set()
         try:
             data, base = await self._management_request("/sessions/managed")
             now = time.time()
@@ -101,8 +106,12 @@ class SessionManagementMixin:
                     title=str(remote.get("title") or ""), cwd=str(remote.get("cwd") or ""),
                     status=str(remote.get("status") or "unknown"),
                     last_used=last_used, remote_seen_at=now)
-                # Import cold/live bindings without waking agents. Server owns final idle checks.
-                if umo not in self._session_activity and record.get("status") != "cold":
+                observed.add(record['id'])
+                # Reconcile changed bindings only when no local dispatch owns the lane.
+                activity_entry = self._session_activity.get(umo, {})
+                changed = activity_entry.get('session_id') != sid or activity_entry.get('base') != base
+                if record.get('status') != 'cold' and (umo not in self._session_activity or
+                        (changed and not self._active_lanes.get(umo, 0) and umo not in self._bg_lanes)):
                     self._session_activity[umo] = {"base": base, "session_id": sid,
                         "last_used": time.monotonic() - max(0, now - last_used)}
             available = True
@@ -115,6 +124,8 @@ class SessionManagementMixin:
                 record["status"] = "unknown"
             elif self._active_lanes.get(record["umo"], 0) or record["umo"] in self._bg_lanes:
                 record["status"] = "running"
+            elif record['id'] not in observed:
+                record['status'] = 'unknown'
             record["idle_remaining_sec"] = max(0, int(self._idle_timeout() - (time.time() - record.get("last_used", time.time()))))
         return {"sessions": records, "ingress_available": available, "message": message,
                 "idle": {"enabled": self._reclaim_enabled(), "timeout_sec": self._idle_timeout()}}

@@ -301,7 +301,8 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
     async def test_official_command_entry_and_invalid_parsing(self):
         # AstrBot's decorator belongs on the main-module wrapper, not the mixin.
         self.assertFalse(hasattr(self.p.dsh_command, 'command_name'))
-        self.assertEqual(self.p.dsh_progress.tool_name, 'dsh_progress')
+        self.assertFalse(hasattr(self.p.dsh_progress, 'tool_name'))
+        self.assertFalse(hasattr(self.p.dsh_active_sessions, 'tool_name'))
         self.e.message = '/dsh run --session "missing lane" task'
         results = [x async for x in self.p.dsh_command(self.e)]
         self.assertEqual(json.loads(results[0])['error'], 'target_required')

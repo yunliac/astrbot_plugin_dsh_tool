@@ -289,7 +289,9 @@ async def _call_ingress(
                     data_lines.append(value[1:] if value.startswith(" ") else value)
 
             if not finished and event_name and data_lines:
-                _apply(event_name, "\n".join(data_lines))
+                finished = _apply(event_name, "\n".join(data_lines))
+            if not finished and not error:
+                error = '未收到结束事件，连接提前中断；任务可能仍在运行，请查询进度。'
 
     return _clean("\n".join(chunks), max_chars), error, session_id
 
@@ -351,6 +353,25 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
                 logger.warning("[dsh_task] 当前 AstrBot 不支持受保护的插件页面接口，扩展页不可用")
         except Exception:
             logger.exception("[dsh_task] 注册会话管理页面失败")
+
+    @filter.llm_tool(name='dsh_progress')
+    async def dsh_progress(self, event: AstrMessageEvent, session: str = '', detail: bool = True) -> str:
+        """用户问做到哪一步、是否运行中、终端输出时只读查询，不执行命令或批准请求。
+
+        Args:
+            session(string): 当前聊天的会话名称或ID，多会话时明确指定。
+            detail(boolean): 是否读取近期对话和输出，默认true。
+        """
+        return await RuntimeToolsMixin.dsh_progress(self, event, session, detail)
+
+    @filter.llm_tool(name='dsh_active_sessions')
+    async def dsh_active_sessions(self, event: AstrMessageEvent, recent_hours: int = 24) -> str:
+        """查询当前聊天近期活跃且未回收的DSH对话列表，只读不唤醒会话。
+
+        Args:
+            recent_hours(number): 近期范围小时数，默认24，允许1至168。
+        """
+        return await RuntimeToolsMixin.dsh_active_sessions(self, event, recent_hours)
 
     @filter.command('dsh', alias=set())
     async def dsh_command(self, event: AstrMessageEvent):
@@ -652,10 +673,10 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
                 bases, _, _, _ = self._resolve_settings()
                 record = self._record_session(
                     umo, session_id, record["base"] if record else (bases[0] if bases else ""),
-                    status="idle",
+                    status='unknown' if '未收到结束事件' in text else 'idle',
                 )
             elif record is not None:
-                record = self.session_store.mark_status(record["id"], "idle")
+                record = self.session_store.mark_status(record["id"], 'unknown' if '未收到结束事件' in text else 'idle')
             if record is not None and task and text:
                 self.session_store.append_exchange(record["id"], str(task), str(text))
         except Exception:
@@ -702,7 +723,7 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
 
         failed = text.startswith(
             ("DSH 调用失败", "DSH 连接失败", "后台任务失败", "任务超时")
-        )
+        ) or '[DSH 报告错误：' in text
         header = "【DSH 后台任务失败】" if failed else "【DSH 后台任务完成】"
         meta = [f"#{ticket}"]
         if lane:

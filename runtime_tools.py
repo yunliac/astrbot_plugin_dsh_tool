@@ -79,7 +79,6 @@ class RuntimeToolsMixin:
             'sessions': [self._runtime_public(r) for r in rows],
         })
 
-    @filter.llm_tool(name='dsh_active_sessions')
     async def dsh_active_sessions(self, event: AstrMessageEvent, recent_hours: int = 24) -> str:
         """用户问最近活跃、还在线、未回收的 DSH 对话有哪些时，查询当前聊天的状态列表。
 
@@ -134,7 +133,6 @@ class RuntimeToolsMixin:
             return self._runtime_json({'ok': False, 'error': 'active_list_unavailable',
                 'message': '无法确认未回收会话，请稍后重试；没有使用缓存状态冒充在线列表。'})
 
-    @filter.llm_tool(name='dsh_progress')
     async def dsh_progress(self, event: AstrMessageEvent, session: str = '', detail: bool = True) -> str:
         """用户问 DSH「做到哪一步」「是否运行中」「终端输出」时，只读查询当前聊天的运行证据。
 
