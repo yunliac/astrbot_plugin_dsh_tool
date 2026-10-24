@@ -139,9 +139,13 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
             result = json.loads(await self.p.dsh_progress(self.e, name))
             self.assertEqual(result['sessions'], [])
         for command in ['use one', 'stop one', 'approve one r', 'answer one r yes']:
-            self.assertEqual(json.loads(await self.command(command))['error'], 'target_required')
+            answer = await self.command(command)
+            self.assertIn('目标会话不明确', answer)
+            self.assertNotIn('"ok"', answer)
         self.assertEqual(self.p.calls, [])
-        self.assertEqual(json.loads(await self.command('list'))['sessions'], [])
+        listing = await self.command('list')
+        self.assertIn('还没有 DSH 会话', listing)
+        self.assertNotIn(foreign['session_id'], listing)
 
     async def test_missing_origin(self):
         self.p.add()
@@ -157,7 +161,9 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(result['sessions']), 2)
             self.assertNotIn('secret-endpoint', json.dumps(result))
         for command in ['run task', 'bg task', 'stop']:
-            self.assertEqual(json.loads(await self.command(command))['error'], 'target_required')
+            answer = await self.command(command)
+            self.assertIn('目标会话不明确', answer)
+            self.assertNotIn('"ok"', answer)
         self.assertEqual(self.p.calls, [])
 
     async def test_read_contract_resolution_and_notice(self):
@@ -198,7 +204,9 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.p.calls[-1], ('task', 'third', 'other', False))
         self.p._command_lanes['chat-a'] = 'stale-record'
         before = len(self.p.calls)
-        self.assertEqual(json.loads(await self.command('run task'))['error'], 'target_required')
+        answer = await self.command('run task')
+        self.assertIn('目标会话不明确', answer)
+        self.assertNotIn('"ok"', answer)
         self.assertEqual(len(self.p.calls), before)
 
     async def test_use_failure_not_selected(self):
@@ -270,12 +278,13 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         two = self.p.add('two')
         await self.command('use one')
         for command, detail in [('status', '0'), ('progress', '1')]:
-            result = json.loads(await self.command(command))
-            self.assertTrue(result['ok'])
-            self.assertEqual(result['session']['id'], one['id'])
+            result = await self.command(command)
+            self.assertIn('状态：', result)
+            self.assertNotIn('"evidence"', result)
             self.assertEqual(self.p.calls[-1][2]['detail'], detail)
-        overridden = json.loads(await self.command('status two'))
-        self.assertEqual(overridden['session']['id'], two['id'])
+        overridden = await self.command('status two')
+        self.assertIn('会话：', overridden)
+        self.assertEqual(self.p.calls[-1][2]['sessionId'], two['session_id'])
         self.assertEqual(self.p._command_lanes['chat-a'], one['id'])
         # A selected binding from another origin, or a stale ID, never falls
         # back to a different lane or exposes another chat's metadata.
@@ -283,9 +292,10 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         for selected in [foreign['id'], 'stale-id']:
             self.p._command_lanes['chat-a'] = selected
             before = len(self.p.calls)
-            result = json.loads(await self.command('progress'))
-            self.assertEqual(result['error'], 'target_required')
-            self.assertEqual(len(result['sessions']), 2)
+            result = await self.command('progress')
+            self.assertIn('目标会话不明确', result)
+            self.assertIn('one', result)
+            self.assertNotIn('foreign', result)
             self.assertEqual(len(self.p.calls), before)
 
     async def test_tasks_preserve_paths_quotes_and_newlines(self):
@@ -298,6 +308,20 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         await self.command('new ' + task)
         self.assertEqual(self.p.calls[-1], ('action', 'new', 'new', task, ''))
 
+    async def test_command_replies_are_readable_text(self):
+        self.p.add('one', title='部署维护')
+        listing = await self.command('list')
+        self.assertIn('当前聊天共 1 个 DSH 会话', listing)
+        self.assertIn('通道：one', listing)
+        self.assertIn('状态：', listing)
+        self.assertNotIn('"sessions"', listing)
+        self.assertNotIn('secret-endpoint', listing)
+        progress = await self.command('progress')
+        self.assertIn('会话：部署维护', progress)
+        self.assertIn('状态：', progress)
+        self.assertNotIn('"evidence"', progress)
+        self.assertNotIn('secret-endpoint', progress)
+
     async def test_official_command_entry_and_invalid_parsing(self):
         # AstrBot's decorator belongs on the main-module wrapper, not the mixin.
         self.assertFalse(hasattr(self.p.dsh_command, 'command_name'))
@@ -305,7 +329,7 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(hasattr(self.p.dsh_active_sessions, 'tool_name'))
         self.e.message = '/dsh run --session "missing lane" task'
         results = [x async for x in self.p.dsh_command(self.e)]
-        self.assertEqual(json.loads(results[0])['error'], 'target_required')
+        self.assertIn('目标会话不明确', results[0])
         self.assertIs(self.e.call_llm, False)
         self.e.message = '/invalid new no'
         self.assertIn('/dsh help', [x async for x in self.p.dsh_command(self.e)][0])
