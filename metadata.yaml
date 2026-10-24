@@ -6,16 +6,18 @@ desc: |
   是否需要把「写代码 / 执行命令 / 读写服务器文件 / 跑长任务」交给本机的 DeepSeek
   Harness (DSH) 执行，并把结果拿回来继续回答。
 
-  与 astrbot_plugin_dsh（/dsh 命令桥）互补：那个是显式命令，这个是隐式工具。
-  需要先装好 astrbot_plugin_dsh 并配好 ingress 地址与 token（本插件直接复用它的配置），
-  也可以在本插件的配置里单独填写。
+  提供隐式工具和独立 /dsh2 命令入口；需要可用的 DSH ingress。
+  可兼容读取既有桥插件配置，也可单独填写地址/token。新增命令与运行观察模块
+  基于 AstrBot/DSH 官方 API 独立实现，不读取或改写其他桥插件源码。
 
   1.1.0 起支持多会话并行：模型可以为不同任务指定不同的 DSH 会话（session），
   并用 background=true 立即返回，让多个任务同时跑，完成后把结果发回聊天。
   1.2.0 起可选空闲会话自动回收：保留历史与绑定，安全释放空闲 agent 资源。
   1.2.1 起提供 AstrBot 拓展页会话管理：运行状态、长期保留与免回收开关、
   QQ 内自动标记、记录导出；会话标记持久化在插件数据目录。
-version: 1.2.1
+  2.0.0-beta 新增独立 /dsh2 命令入口与 dsh_progress 只读工具，
+  可读取 agent 状态、待办、近期对话和终端/后台任务输出，不干扰原执行游标。
+version: 2.0.0-beta
 views:
   - name: dsh
     title: DSH 会话管理

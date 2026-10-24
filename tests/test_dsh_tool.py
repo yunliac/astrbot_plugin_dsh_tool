@@ -28,6 +28,9 @@ sys.modules["astrbot.api"] = api
 
 
 class _Filter:
+    def command(self, *args, **kwargs):
+        return lambda fn: fn
+
     def on_llm_request(self, **kwargs):
         return lambda fn: fn
 

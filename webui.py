@@ -135,7 +135,19 @@ def register_webui(plugin: Any) -> bool:
                 "session_id", "title", "source", "messages", "next_cursor", "complete", "notice")}
         return await invoke(operation)
 
+    async def runtime():
+        async def operation():
+            sid = _sid(request.query.get('id'))
+            record = plugin.session_store.get(sid)
+            if record is None:
+                raise KeyError(sid)
+            data, _ = await plugin._management_request('/sessions/runtime', {
+                'umo': record['umo'], 'sessionId': record['session_id'], 'detail': '1'})
+            return data
+        return await invoke(operation)
+
     routes = [
+        (f"/{PLUGIN_NAME}/sessions/runtime", runtime, ["GET"], "DSH 只读运行证据"),
         (f"/{PLUGIN_NAME}/sessions/preview", preview, ["GET"], "DSH 分页预览会话正文"),
         (f"/{PLUGIN_NAME}/sessions", sessions, ["GET"], "DSH 会话列表"),
         (f"/{PLUGIN_NAME}/sessions/refresh", refresh, ["POST"], "DSH 刷新运行状态"),

@@ -3,13 +3,65 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 import httpx
 
 
 class SessionManagementMixin:
+    def _runtime_bases(self, bases: list[str]) -> list[str]:
+        configured = str(self.config.get('runtime_url', '') or '').strip().rstrip('/')
+        if configured:
+            parts = urlsplit(configured)
+            if parts.scheme not in ('http', 'https') or not parts.hostname or parts.username:
+                raise ValueError('invalid runtime URL')
+            return [configured]
+        result = []
+        for base in bases:
+            parts = urlsplit(base)
+            if not parts.hostname:
+                continue
+            host = f'[{parts.hostname}]' if ':' in parts.hostname else parts.hostname
+            result.append(urlunsplit((parts.scheme, host + ':3190', '', '', '')))
+        return result
+
+    async def _runtime_action(self, event, action: str, session: str = '', text: str = '', request_id: str = '') -> dict:
+        allowed, _ = self._check_permission(event)
+        origin = str(getattr(event, 'unified_msg_origin', '') or '')
+        if not allowed or not origin:
+            return {'ok': False, 'error': 'permission_denied'}
+        if action == 'new':
+            if not text.strip():
+                return {'ok': False, 'error': 'task_required'}
+            return {'ok': True, 'message': await self.dsh_task(event, text, session='new', background=True)}
+        record = self.session_store.get(session)
+        if not record or record.get('origin') != origin:
+            return {'ok': False, 'error': 'session_not_found'}
+        if action == 'use':
+            return {'ok': True, 'session': record['id'], 'persisted': False}
+        if action not in ('stop', 'approve', 'reject', 'answer'):
+            return {'ok': False, 'error': 'unsupported_action'}
+        if action != 'stop':
+            return {'ok': False, 'error': 'interactive_control_unavailable',
+                    'message': '此 beta 不接管已有审批答复通道，请在 DSH 页面明确处理；查看进度不会自动批准。'}
+        bases, token, _, _ = self._resolve_settings()
+        for base in self._runtime_bases(bases):
+            try:
+                async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                    response = await client.post(base + '/sessions/control',
+                        headers={'Authorization': 'Bearer ' + token},
+                        json={'action': action, 'umo': record['umo'], 'sessionId': record['session_id']})
+                response.raise_for_status()
+                data = response.json()
+                return {k: data[k] for k in ('ok', 'action', 'requested', 'error') if k in data}
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                continue
+        return {'ok': False, 'error': 'runtime_unavailable'}
+
     async def _management_request(self, path: str, params: dict | None = None) -> tuple[dict, str]:
         bases, token, _, _ = self._resolve_settings()
+        if path == '/sessions/runtime':
+            bases = self._runtime_bases(bases)
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         last = "ingress unavailable"
         for base in bases:
@@ -71,6 +123,8 @@ class SessionManagementMixin:
         return await self.refresh_managed_sessions()
 
     async def update_managed_session(self, record_id: str, long_term=None, exempt=None, title=None) -> dict:
+        if not getattr(self, '_store_healthy', True):
+            raise RuntimeError('Session store unavailable; refusing management writes')
         for value in (long_term, exempt):
             if value is not None and not isinstance(value, bool):
                 raise ValueError("开关必须是布尔值")

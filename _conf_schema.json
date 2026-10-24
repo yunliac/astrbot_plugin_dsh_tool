@@ -5,6 +5,12 @@
     "type": "string",
     "default": ""
   },
+  "runtime_url": {
+    "description": "只读运行观察服务地址（2.0.0-beta）",
+    "hint": "独立 companion 服务，使用官方 DSH API 观察进度。留空按 ingress 主机的 3190 端口推导；只允许内网访问，复用 token。读取不执行命令，不自动批准。",
+    "type": "string",
+    "default": ""
+  },
   "token": {
     "description": "DSH ingress 的 Bearer token（留空 = 复用桥配置）",
     "hint": "与 astrbot_plugin_dsh 使用同一个 token。留空时自动读取桥插件的配置；容器部署通常需要手填（token 在宿主机的 dsh-astrbot-ingress 配置里）。",
