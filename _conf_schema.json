@@ -5,6 +5,23 @@
     "type": "string",
     "default": ""
   },
+  "auto_progress_enabled": {
+    "description": "长任务自动进度播报",
+    "hint": "默认开启。DSH 未返回结果时定时只读查询，由当前聊天的 AstrBot LLM 总结推送，会产生模型调用费用。关闭不影响主动询问进度。",
+    "type": "bool", "default": true
+  },
+  "auto_progress_delay_sec": {
+    "description": "首次自动播报等待秒数（30–3600）",
+    "type": "int", "default": 120
+  },
+  "auto_progress_interval_sec": {
+    "description": "自动进度播报间隔秒数（30–3600）",
+    "type": "int", "default": 180
+  },
+  "auto_progress_max_reports": {
+    "description": "每次任务自动播报次数上限（1–20）",
+    "type": "int", "default": 5
+  },
   "runtime_url": {
     "description": "只读运行观察服务地址（2.0.0-beta）",
     "hint": "独立 companion 服务，使用官方 DSH API 观察进度。留空按 ingress 主机的 3190 端口推导；只允许内网访问，复用 token。读取不执行命令，不自动批准。",

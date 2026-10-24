@@ -32,6 +32,7 @@ from astrbot.api.message_components import Plain
 from astrbot.api.star import Context, Star, StarTools, register
 
 try:  # 包内加载（AstrBot 插件管理器）
+    from .progress_reporting import ProgressReportingMixin
     from .runtime_tools import RuntimeToolsMixin
     from .management import SessionManagementMixin
     from .session_store import SessionStore
@@ -42,6 +43,7 @@ except ImportError:  # 直接按文件加载（测试 / 调试）
     _HERE = os.path.dirname(os.path.abspath(__file__))
     if _HERE not in sys.path:
         sys.path.insert(0, _HERE)
+    from progress_reporting import ProgressReportingMixin
     from runtime_tools import RuntimeToolsMixin
     from management import SessionManagementMixin
     from session_store import SessionStore
@@ -296,7 +298,7 @@ async def _call_ingress(
 
 
 @register(PLUGIN_NAME, "yunliac", "DSH 任务、独立命令与只读运行进度", "2.0.0-beta")
-class DshToolPlugin(RuntimeToolsMixin, SessionManagementMixin, Star):
+class DshToolPlugin(ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
@@ -577,9 +579,14 @@ class DshToolPlugin(RuntimeToolsMixin, SessionManagementMixin, Star):
         lock = self._lane_locks.setdefault(umo, asyncio.Lock())
         try:
             async with lock:
-                text, session_id = await self._dispatch_once(
-                    bases, token, payload, timeout, max_chars
-                )
+                watcher = asyncio.create_task(self._watch_progress(payload))
+                try:
+                    text, session_id = await self._dispatch_once(
+                        bases, token, payload, timeout, max_chars
+                    )
+                finally:
+                    watcher.cancel()
+                    await asyncio.gather(watcher, return_exceptions=True)
             self._record_outcome(umo, payload.get("text"), text, session_id)
             return text, session_id
         finally:
