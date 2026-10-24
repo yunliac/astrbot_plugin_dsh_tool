@@ -21,9 +21,11 @@ class ProgressReportingMixin:
             return
         delay = self._progress_number('auto_progress_delay_sec', 120, 30, 3600)
         interval = self._progress_number('auto_progress_interval_sec', 180, 30, 3600)
-        limit = self._progress_number('auto_progress_max_reports', 5, 1, 20)
+        limit = self._progress_number('auto_progress_max_reports', 0, 0, 20)
         await asyncio.sleep(delay)
-        for index in range(limit):
+        index = 0
+        while limit == 0 or index < limit:
+            index += 1
             if self._closing or not self.config.get('auto_progress_enabled', True):
                 return
             try:
@@ -31,7 +33,7 @@ class ProgressReportingMixin:
                 matches = [r for r in managed.get('sessions', []) if r.get('umo') == lane]
                 if len(matches) != 1 or not matches[0].get('sessionId'):
                     # No guessed or cached binding; retry at the normal cadence.
-                    if index + 1 < limit:
+                    if limit == 0 or index < limit:
                         await asyncio.sleep(interval)
                     continue
                 row = matches[0]
@@ -65,5 +67,5 @@ class ProgressReportingMixin:
                 # Observer outages never kill or resend the original task, nor
                 # leak private endpoints/error text. User can still query manually.
                 pass
-            if index + 1 < limit:
+            if limit == 0 or index < limit:
                 await asyncio.sleep(interval)

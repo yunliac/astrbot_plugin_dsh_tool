@@ -163,7 +163,6 @@ class ProgressReportingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_and_capped_max_reports_and_minimum_intervals(self):
         for config, expected, delay, interval in [
-            ({}, 5, 120, 180),
             ({'auto_progress_max_reports': 2}, 2, 120, 180),
             ({'auto_progress_max_reports': 999,
               'auto_progress_delay_sec': 0,
@@ -178,6 +177,17 @@ class ProgressReportingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(plugin._management_request.await_count, 2 * expected)
                 self.assertEqual([call.args[0] for call in self.clock.sleep.await_args_list],
                                  [delay] + [interval] * (expected - 1))
+
+    async def test_zero_and_default_unlimited_until_cancelled(self):
+        for config in ({}, {'auto_progress_max_reports': 0}):
+            plugin = Plugin(config)
+            async def stop_after_seven(*args):
+                if plugin._send_to_chat.await_count >= 7:
+                    raise asyncio.CancelledError
+            plugin._send_to_chat.side_effect = stop_after_seven
+            with self.assertRaises(asyncio.CancelledError):
+                await plugin._watch_progress(plugin.payload)
+            self.assertEqual(plugin._send_to_chat.await_count, 7)
 
     async def test_shutdown_while_llm_running_prevents_late_push(self):
         plugin = Plugin({'auto_progress_max_reports': 1})

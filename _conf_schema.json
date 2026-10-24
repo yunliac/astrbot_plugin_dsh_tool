@@ -19,8 +19,8 @@
     "type": "int", "default": 180
   },
   "auto_progress_max_reports": {
-    "description": "每次任务自动播报次数上限（1–20）",
-    "type": "int", "default": 5
+    "description": "每次任务自动播报次数上限（0=无上限，1–20=限次）",
+    "type": "int", "default": 0
   },
   "runtime_url": {
     "description": "只读运行观察服务地址（2.0.0-beta）",
