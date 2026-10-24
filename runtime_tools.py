@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import shlex
 import time
+from datetime import datetime
 
 from astrbot.api.event import AstrMessageEvent, filter
 
@@ -53,16 +54,30 @@ def _cn_status(value) -> str:
     return _STATUS_CN.get(str(value or ''), '状态未知')
 
 
-def _cn_time(value) -> str:
-    """Render seconds/milliseconds/ISO evidence time in the server's local zone."""
+def _cn_time(value, tz=None) -> str:
+    """Render seconds/milliseconds/ISO (UTC) evidence time in the AstrBot timezone.
+
+    The container clock is often UTC, so local process time would be off for
+    users; ``tz`` is the AstrBot global timezone when available.
+    """
     try:
         if isinstance(value, str):
-            return value[:19].replace('T', ' ')
+            text = value.strip()
+            if not text:
+                return '未知时间'
+            moment = datetime.fromisoformat(text.replace('Z', '+00:00'))
+            if moment.tzinfo is None:
+                return moment.strftime('%m-%d %H:%M:%S')
+            if tz is not None:
+                return moment.astimezone(tz).strftime('%m-%d %H:%M:%S')
+            return moment.astimezone().strftime('%m-%d %H:%M:%S')
         stamp = float(value)
         if stamp > 1e11:
             stamp /= 1000.0
         if stamp <= 0:
             return '未知时间'
+        if tz is not None:
+            return datetime.fromtimestamp(stamp, tz).strftime('%m-%d %H:%M:%S')
         return time.strftime('%m-%d %H:%M:%S', time.localtime(stamp))
     except (TypeError, ValueError, OverflowError, OSError):
         return '未知时间'
@@ -112,6 +127,25 @@ class RuntimeToolsMixin:
 
     # -- 面向 QQ 的纯文本渲染：命令回复不输出原始 JSON -------------------- #
 
+    def _runtime_tz(self):
+        """AstrBot global timezone; containers are usually UTC despite config."""
+        cached = getattr(self, '_command_tz', None)
+        if cached is not None:
+            return cached or None
+        zone = None
+        try:
+            config = self.context.get_config()
+            name = config.get('timezone') if hasattr(config, 'get') else ''
+            if not isinstance(name, str):
+                name = ''
+            if name.strip():
+                from zoneinfo import ZoneInfo
+                zone = ZoneInfo(name.strip())
+        except Exception:
+            zone = None
+        self._command_tz = zone if zone is not None else False
+        return self._command_tz or None
+
     def _runtime_targets_text(self, rows: list[dict]) -> str:
         if not rows:
             return ('目标会话不明确或不存在，未执行任何操作。\n'
@@ -145,7 +179,7 @@ class RuntimeToolsMixin:
         evidence = data.get('evidence') or {}
         lines = [f'会话：{_clip(session.get("title") or session.get("channel") or "未命名会话", 60)}'
                  f'（通道 {_clip(session.get("channel") or "默认会话", 40)}）',
-                 f'状态：{_cn_status(evidence.get("status"))} · 采样 {_cn_time(evidence.get("observedAt"))}']
+                 f'状态：{_cn_status(evidence.get("status"))} · 采样 {_cn_time(evidence.get("observedAt"), self._runtime_tz())}']
         if evidence.get('live') is False:
             lines.append('说明：该会话当前未加载（冷会话），以下仅为已保存的历史记录。')
         projections = evidence.get('projections') or {}

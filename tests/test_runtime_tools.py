@@ -1,9 +1,11 @@
 """Isolated AstrBot API stub; no plugin main or other plugin sources loaded."""
 import asyncio
+import datetime
 import importlib.util
 import json
 from pathlib import Path
 import sys
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -307,6 +309,27 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.p.calls[-1], ('task', task, 'one', True))
         await self.command('new ' + task)
         self.assertEqual(self.p.calls[-1], ('action', 'new', 'new', task, ''))
+
+    async def test_evidence_time_is_shown_in_local_zone(self):
+        utc = runtime._cn_time('2026-10-24T10:51:48.000Z')
+        expected = time.strftime('%m-%d %H:%M:%S', time.localtime(
+            datetime.datetime(2026, 10, 24, 10, 51, 48, tzinfo=datetime.timezone.utc).timestamp()))
+        self.assertEqual(utc, expected)
+        stamp = datetime.datetime(2026, 10, 24, 10, 51, 48, tzinfo=datetime.timezone.utc).timestamp()
+        self.assertEqual(runtime._cn_time(stamp * 1000), expected)
+        self.assertEqual(runtime._cn_time(''), '未知时间')
+        self.assertEqual(runtime._cn_time('not-a-time'), '未知时间')
+
+    async def test_evidence_time_uses_astrbot_timezone(self):
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo('Asia/Shanghai')
+        except Exception:
+            self.skipTest('IANA timezone data unavailable')
+        # Containers run UTC; the reply must use the AstrBot timezone (UTC+8 here).
+        self.assertEqual(runtime._cn_time('2026-10-24T10:51:48.000Z', tz), '10-24 18:51:48')
+        self.p.context = types.SimpleNamespace(get_config=lambda: {'timezone': 'Asia/Shanghai'})
+        self.assertEqual(str(self.p._runtime_tz()), 'Asia/Shanghai')
 
     async def test_command_replies_are_readable_text(self):
         self.p.add('one', title='部署维护')
