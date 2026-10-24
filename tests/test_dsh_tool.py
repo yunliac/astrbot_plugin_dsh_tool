@@ -281,15 +281,11 @@ def test_bridge_config_and_settings():
             ),
             encoding="utf-8-sig",
         )
-        loaded = main._load_bridge_config(str(path))
-        assert loaded["token"] == "bridge-token"
-        assert loaded["ingress_url"] == "bridge:3188"
-
         plugin = main.DshToolPlugin(None, {"bridge_config_path": str(path)})
         bases, token, timeout, max_chars = plugin._resolve_settings()
-        assert bases == ["http://bridge:3188"], bases
-        assert token == "bridge-token"
-        assert timeout == 300
+        assert bases == [main.DEFAULT_INGRESS, main.FALLBACK_INGRESS], bases
+        assert token == "", 'legacy bridge config must not be read'
+        assert timeout == 900
         assert max_chars == 6000
         assert plugin._max_parallel() == 3
 

@@ -1,7 +1,7 @@
 {
   "ingress_url": {
     "description": "DSH ingress 地址（留空 = 自动）",
-    "hint": "形如 http://127.0.0.1:3188。留空时先复用 astrbot_plugin_dsh 的配置；仍然没有就依次尝试 host.docker.internal:3188（Docker）与 127.0.0.1:3188（裸机）。非默认端口请手填。",
+    "hint": "填写 DSH ingress 地址，或设置 DSH_INGRESS_URL。留空尝试 host.docker.internal:3188 与 127.0.0.1:3188，不读取其他插件配置。",
     "type": "string",
     "default": ""
   },
@@ -12,14 +12,8 @@
     "default": ""
   },
   "token": {
-    "description": "DSH ingress 的 Bearer token（留空 = 复用桥配置）",
-    "hint": "与 astrbot_plugin_dsh 使用同一个 token。留空时自动读取桥插件的配置；容器部署通常需要手填（token 在宿主机的 dsh-astrbot-ingress 配置里）。",
-    "type": "string",
-    "default": ""
-  },
-  "bridge_config_path": {
-    "description": "桥插件配置文件路径（留空 = 自动查找）",
-    "hint": "默认查找 AstrBot 数据目录/config/astrbot_plugin_dsh_config.json，找不到再试 /AstrBot/data/config/ 下的同名文件。只有路径很特殊时才需要填。",
+    "description": "DSH ingress 的 Bearer token",
+    "hint": "填写本插件 token 或设置 DSH_INGRESS_TOKEN；不再读取其他 AstrBot 插件配置。",
     "type": "string",
     "default": ""
   },

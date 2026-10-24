@@ -6,20 +6,13 @@
 
 支持**多会话并行**：同一个对话里，模型可以为不同任务开不同的 DSH 会话，互不阻塞；后台任务完成后再把结果发回聊天。
 
-与 [astrbot_plugin_dsh](https://github.com/CCYellowStar2/astrbot_plugin_dsh)（`/dsh` 命令桥）互补：
-
-| | astrbot_plugin_dsh | 本插件 |
-|---|---|---|
-| 触发方式 | 显式命令 `/dsh ...` | 隐式工具，模型自行判断 |
-| 适用场景 | 整段会话交给 DSH | 日常聊天里偶尔需要动手 |
-| 过程显示 | 可配置实时进度 | 只把最终结果返回给模型 |
-| 配置 | 自带 ingress 地址 / token | **直接复用**它的配置，也可独立填写 |
+提供独立 `/dsh` 命令与日常对话工具，不依赖其他 AstrBot 桥插件。DSH 侧仍需运行现有 ingress 服务。
 
 ## 2.0.0-beta：独立命令与运行进度观察
 
 此 beta 新增模块依据 **AstrBot 与 DSH 官方接口**独立编写，不读取或改写 `astrbot_plugin_dsh` 源代码。
 这不意味着原有第三方组件变成自研：任务执行仍使用现有 ingress，历史版本的许可与致谢保留。
-不是原命令桥全部功能的无差别替代，原插件无需卸载；使用 `/dsh2`（别名 `/dshctl`）避免占用 `/dsh`。
+统一使用 `/dsh`。请卸载旧 AstrBot 桥插件避免命令冲突；不再读取它的配置。审批和问题答复仍在 DSH 网页完成。
 
 ### 直接问机器人进度
 
@@ -46,15 +39,15 @@
 ### 独立命令
 
 ```text
-/dsh2 help
-/dsh2 list
-/dsh2 new 请检查当前目录结构（新独立会话，后台执行）
-/dsh2 use 会话通道名
-/dsh2 run 要执行的任务
-/dsh2 bg --session "部署维护" 要执行的任务
-/dsh2 status 会话通道名
-/dsh2 progress 会话通道名
-/dsh2 stop 会话通道名
+/dsh help
+/dsh list
+/dsh new 请检查当前目录结构（新独立会话，后台执行）
+/dsh use 会话通道名
+/dsh run 要执行的任务
+/dsh bg --session "部署维护" 要执行的任务
+/dsh status 会话通道名
+/dsh progress 会话通道名
+/dsh stop 会话通道名
 ```
 
 `use` 选择只对当前聊天生效，重启后需重新选择。`stop` 仅请求取消目标 agent 当前活动，
@@ -89,7 +82,7 @@ Bot ：（分别用 session="logs" / "tests" / "disk" + background=true 提交�
 ## 前置条件
 
 1. 本机已安装并运行 **DSH**，且启用了 `dsh-astrbot-ingress` 入站插件；
-2. 已安装并配置好 **astrbot_plugin_dsh**（提供 ingress 地址与 token）；
+2. DSH 侧 ingress 服务可用；在本插件明确填写 ingress 地址与 token；
 3. AstrBot `>= 4.16`。
 
 ## 安装
@@ -108,9 +101,8 @@ Bot ：（分别用 session="logs" / "tests" / "disk" + background=true 提交�
 
 | 配置项 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `ingress_url` | string | 空 | DSH ingress 地址，如 `http://127.0.0.1:3188`。留空则自动复用桥配置，再不行依次尝试 `host.docker.internal:3188`、`127.0.0.1:3188` |
-| `token` | string | 空 | 与 DSH ingress 相同的 Bearer token。留空则复用桥配置 |
-| `bridge_config_path` | string | 空 | 桥插件配置文件路径。留空自动查找 `<AstrBot>/data/config/astrbot_plugin_dsh_config.json` |
+| `ingress_url` | string | 空 | DSH ingress 地址，如 `http://127.0.0.1:3188`。留空依次尝试 `host.docker.internal:3188`、`127.0.0.1:3188` |
+| `token` | string | 空 | 与 DSH ingress 相同的 Bearer token。必须填写或设置 DSH_INGRESS_TOKEN |
 | `timeout_sec` | int | `900` | 等待 DSH 结果的超时（按流空闲时间算） |
 | `max_result_chars` | int | `6000` | 返回给模型的结果最大字符数，超出截断 |
 | `max_parallel` | int | `3` | 同时运行的后台任务上限（1–20） |
@@ -120,7 +112,7 @@ Bot ：（分别用 session="logs" / "tests" / "disk" + background=true 提交�
 | `admin_only` | bool | `true` | 仅管理员可调用 |
 | `allow_users` | list | `[]` | 额外允许的用户 ID（非管理员也可调用） |
 
-**取值优先级**：本插件配置 → 环境变量（`DSH_INGRESS_URL` / `DSH_INGRESS_TOKEN` / `DSH_BRIDGE_CONFIG`）→ `astrbot_plugin_dsh` 的配置 → 内置默认值。
+**取值优先级**：本插件配置 → 环境变量（`DSH_INGRESS_URL` / `DSH_INGRESS_TOKEN`）→ 内置默认值。不会读取其他 AstrBot 插件配置。
 
 ### 重要：把 AstrBot 的工具超时也调大
 
@@ -363,5 +355,5 @@ astrbot_plugin_dsh_tool/
 
 ## 联系
 
-作者：**yunliac**  
+作者：**yunliac**
 GitHub：<https://github.com/yunliac>

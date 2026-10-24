@@ -44,7 +44,7 @@ spec.loader.exec_module(store)
 
 
 class Event:
-    def __init__(self, origin='chat-a', message='/dsh2 help', allowed=True):
+    def __init__(self, origin='chat-a', message='/dsh help', allowed=True):
         self.unified_msg_origin = origin
         self.message, self.allowed = message, allowed
 
@@ -127,8 +127,8 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.command(text, e), 'denied')
         self.assertEqual(json.loads(await self.p.dsh_progress(e))['error'], 'permission_denied')
         self.assertEqual(self.p.calls, [])
-        e.message = '/dsh2 new task'
-        self.assertEqual([x async for x in self.p.dsh2_command(e)], ['denied'])
+        e.message = '/dsh new task'
+        self.assertEqual([x async for x in self.p.dsh_command(e)], ['denied'])
 
     async def test_origin_isolation(self):
         foreign = self.p.add(origin='chat-b')
@@ -296,14 +296,14 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.p.calls[-1], ('action', 'new', 'new', task, ''))
 
     async def test_official_command_entry_and_invalid_parsing(self):
-        self.assertEqual(self.p.dsh2_command.command_name, 'dsh2')
-        self.assertEqual(self.p.dsh2_command.aliases, {'dshctl'})
+        self.assertEqual(self.p.dsh_command.command_name, 'dsh')
+        self.assertEqual(self.p.dsh_command.aliases, set())
         self.assertEqual(self.p.dsh_progress.tool_name, 'dsh_progress')
-        self.e.message = '/dshctl run --session "missing lane" task'
-        results = [x async for x in self.p.dsh2_command(self.e)]
+        self.e.message = '/dsh run --session "missing lane" task'
+        results = [x async for x in self.p.dsh_command(self.e)]
         self.assertEqual(json.loads(results[0])['error'], 'target_required')
-        self.e.message = '/dsh new no'
-        self.assertIn('/dsh2 help', [x async for x in self.p.dsh2_command(self.e)][0])
+        self.e.message = '/invalid new no'
+        self.assertIn('/dsh help', [x async for x in self.p.dsh_command(self.e)][0])
         self.assertIn('格式', await self.command('run "unterminated'))
         self.assertEqual(self.p.calls, [])
 

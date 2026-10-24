@@ -10,8 +10,8 @@
 - ``background=True`` 时立即返回，任务在独立会话里继续跑，完成后把结果
   直接发回聊天，因此同一对话里也能同时跑多个任务。
 
-与 ``astrbot_plugin_dsh``（/dsh 命令桥）互补：那个是显式命令，这个是隐式工具。
-本插件直接复用它的 ingress 地址与 token 配置，也可以完全独立配置。
+提供独立 /dsh 命令与日常语言工具。
+仅从本插件配置或 DSH_INGRESS_* 环境变量读取连接设置。
 """
 
 from __future__ import annotations
@@ -47,14 +47,10 @@ except ImportError:  # 直接按文件加载（测试 / 调试）
     from session_store import SessionStore
     from webui import register_webui, unregister_webui
 
-try:  # AstrBot >= 4.16
-    from astrbot.core.utils.astrbot_path import get_astrbot_config_path
-except Exception:  # pragma: no cover - 兼容旧版本
-    get_astrbot_config_path = None  # type: ignore[assignment]
 
 
 PLUGIN_NAME = "astrbot_plugin_dsh_tool"
-BRIDGE_PLUGIN_NAME = "astrbot_plugin_dsh"
+
 
 DEFAULT_INGRESS = "http://host.docker.internal:3188"
 FALLBACK_INGRESS = "http://127.0.0.1:3188"
@@ -71,44 +67,6 @@ CHUNK_SIZE = 1800
 # --------------------------------------------------------------------------- #
 # 配置读取
 # --------------------------------------------------------------------------- #
-
-
-def _load_bridge_config(explicit_path: str = "") -> dict[str, Any]:
-    """读取 astrbot_plugin_dsh 的配置文件，找不到就返回空字典。"""
-    candidates: list[str] = []
-
-    if explicit_path.strip():
-        candidates.append(os.path.expanduser(explicit_path.strip()))
-    env_path = os.environ.get("DSH_BRIDGE_CONFIG", "").strip()
-    if env_path:
-        candidates.append(os.path.expanduser(env_path))
-    if get_astrbot_config_path is not None:
-        try:
-            candidates.append(
-                os.path.join(
-                    get_astrbot_config_path(),
-                    f"{BRIDGE_PLUGIN_NAME}_config.json",
-                )
-            )
-        except Exception:  # pragma: no cover - 路径解析失败时忽略
-            pass
-    # 兼容 AstrBot 官方 Docker 镜像的默认位置
-    candidates.append(f"/AstrBot/data/config/{BRIDGE_PLUGIN_NAME}_config.json")
-
-    seen: set[str] = set()
-    for path in candidates:
-        if not path or path in seen:
-            continue
-        seen.add(path)
-        try:
-            with open(path, encoding="utf-8-sig") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, dict):
-            logger.debug("[dsh_task] 复用桥配置：%s", path)
-            return data
-    return {}
 
 
 def _conf(config: Any, key: str, default: Any = None) -> Any:
@@ -545,26 +503,26 @@ class DshToolPlugin(RuntimeToolsMixin, SessionManagementMixin, Star):
     # -- 配置 ------------------------------------------------------------- #
 
     def _resolve_settings(self) -> tuple[list[str], str, float, int]:
-        bridge_path = str(_conf(self.config, "bridge_config_path", "") or "")
-        bridge = _load_bridge_config(bridge_path)
+
+
 
         base = _normalize_base(
             _pick(
                 _conf(self.config, "ingress_url", ""),
                 os.environ.get("DSH_INGRESS_URL"),
-                bridge.get("ingress_url"),
+
             )
         )
         token = _pick(
             _conf(self.config, "token", ""),
             os.environ.get("DSH_INGRESS_TOKEN"),
-            bridge.get("token"),
+
         )
 
         timeout = _as_positive_float(
             _pick(
                 _conf(self.config, "timeout_sec", ""),
-                bridge.get("timeout_sec"),
+
                 default=str(DEFAULT_TIMEOUT_SEC),
             ),
             DEFAULT_TIMEOUT_SEC,
