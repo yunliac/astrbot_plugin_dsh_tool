@@ -14,7 +14,7 @@ const elements = new Map();
 const get = id => { if (!elements.has(id)) elements.set(id,new Element()); return elements.get(id); };
 get('status').value='all';
 const requests=[];
-const window={parent:{},addEventListener(){}};
+const window={parent:{},location:{hash:''},addEventListener(){}};
 const document={getElementById:get,createElement:()=>new Element(),createTextNode:text=>({textContent:text}),addEventListener(){},hidden:false};
 const context=vm.createContext({window,document,console,setTimeout,clearTimeout,setInterval:()=>0,clearInterval(){},URL,Blob});
 for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
@@ -45,5 +45,9 @@ setImmediate(async()=>{
   assert.match(get('readerProgress').textContent,/已读到对话末尾/);
   assert.deepEqual(requests.slice(1),[['sessions/preview',''],['sessions/preview','1:0']]);
   get('readerClose').handlers.click();assert.equal(get('reader').hidden,true);
-  console.log('PASS parser-order bootstrap, preview click, safe text, pagination and close');
+  assert.equal(get('sessionChoices').children.length,1);
+  get('navConnection').handlers.click();
+  assert.equal(get('sessionsPage').hidden,true);assert.equal(get('connectionPage').hidden,false);assert.equal(window.location.hash,'connection');
+  get('navSessions').handlers.click();assert.equal(get('sessionsPage').hidden,false);assert.equal(get('connectionPage').hidden,true);
+  console.log('PASS bootstrap, safe preview, pagination and sidebar navigation');
 });
