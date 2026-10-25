@@ -8,6 +8,20 @@
 
 提供独立 `/dsh` 命令与日常对话工具，不依赖其他 AstrBot 桥插件。DSH 侧仍需运行现有 ingress 服务。
 
+## 连通测试、诊断日志与 Windows 部署
+
+- 拓展页 **连接设置 → 连通测试与诊断**：保存插件地址/token后点击“测试已保存连接”，分别检查任务服务与进度观察，报告认证失败、端口/接口错误、超时等；不运行任务、不回显凭据。
+- 插件配置没有按钮控件，因此提供 **手动连通测试（保存后重载插件执行一次）** 开关 `connection_test_on_load`：开启、保存、重载插件，执行一次后自动关闭；结果写入插件运行/诊断日志。即时结果推荐使用拓展页按钮。
+- “导出诊断日志”下载近24小时 INFO/WARNING 等运行信息和近72小时 ERROR/CRITICAL 信息。只记录本插件，不导出完整对话/任务正文；从本功能启用后开始，容量8MiB限制可能提前淘汰旧记录，导出再次脱敏，分享前仍请人工检查。
+
+### Windows 通信检查
+
+1. **不要填写 DSH 网页端口（如3080）代替 ingress（通常3188）**。裸机两端同机可填 `http://127.0.0.1:3188`；IPv6-only listener 用 `http://[::1]:3188`。
+2. Windows Docker Desktop 内的 `127.0.0.1` 指容器自身：宿主机服务通常用 `http://host.docker.internal:3188`，同时确认 ingress 监听可被容器访问的接口及 Windows 防火墙；不是关闭防火墙。
+3. Linux Docker 默认网桥 `172.17.0.1` **不适用于 Windows 裸机**。本 companion 默认配置针对 Linux Docker，Windows需在 Cordis 配置明确设置 `host: 127.0.0.1`、`tokenPath` 与 `bindingsPath` 为实际 Windows绝对路径，`runtime_url` 填 `http://127.0.0.1:3190`。使用 YAML 单引号避免反斜杠转义。
+4. Windows用户目录下 `.dsh/dsh-astrbot-ingress/config.json` 已纳入手动扫描；Docker容器仍需只读挂载，不能直接访问宿主机路径。
+5. 不跟随HTTP重定向、不使用系统代理（避免代理截获token）。URL需有正确协议与端口，禁止用户名密码、查询串及fragment；token不要包含换行。
+
 ## 2.0.0-beta：独立命令与运行进度观察
 
 此 beta 新增模块依据 **AstrBot 与 DSH 官方接口**独立编写，不读取或改写 `astrbot_plugin_dsh` 源代码。

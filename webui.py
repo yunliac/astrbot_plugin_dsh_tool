@@ -77,7 +77,10 @@ def register_webui(plugin: Any) -> bool:
             return _error("请求参数或会话数据不合法。")
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            diagnose = getattr(plugin, '_diag', None)
+            if callable(diagnose):
+                diagnose('error', '管理页面操作失败：' + type(exc).__name__)
             # Do not return str(exc): transport errors can embed bearer tokens.
             return _error("操作失败，请检查 DSH 连接后重试。")
 
@@ -157,7 +160,17 @@ def register_webui(plugin: Any) -> bool:
             return await plugin.apply_connection_scan(body['id'])
         return await invoke(operation)
 
+    async def test_connection():
+        return await invoke(plugin.test_connectivity)
+
+    async def diagnostic_export():
+        async def operation():
+            return plugin.export_diagnostics()
+        return await invoke(operation)
+
     routes = [
+        (f"/{PLUGIN_NAME}/connection/test", test_connection, ["POST"], "手动测试已保存DSH连接"),
+        (f"/{PLUGIN_NAME}/diagnostics/export", diagnostic_export, ["GET"], "导出脱敏运行与错误日志"),
         (f"/{PLUGIN_NAME}/connection/scan", scan_connection, ["POST"], "测试功能：手动扫描DSH连接"),
         (f"/{PLUGIN_NAME}/connection/apply", apply_connection, ["POST"], "测试功能：确认保存扫描连接"),
         (f"/{PLUGIN_NAME}/sessions/runtime", runtime, ["GET"], "DSH 只读运行证据"),

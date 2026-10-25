@@ -32,7 +32,8 @@ from astrbot.api.message_components import Plain
 from astrbot.api.star import Context, Star, StarTools, register
 
 try:  # 包内加载（AstrBot 插件管理器）
-    from .connection_scan import ConnectionScanMixin
+    from .diagnostics import DiagnosticsMixin
+    from .connection_scan import ConnectionScanMixin, valid_base
     from .progress_reporting import ProgressReportingMixin
     from .runtime_tools import RuntimeToolsMixin
     from .management import SessionManagementMixin
@@ -44,7 +45,8 @@ except ImportError:  # 直接按文件加载（测试 / 调试）
     _HERE = os.path.dirname(os.path.abspath(__file__))
     if _HERE not in sys.path:
         sys.path.insert(0, _HERE)
-    from connection_scan import ConnectionScanMixin
+    from diagnostics import DiagnosticsMixin
+    from connection_scan import ConnectionScanMixin, valid_base
     from progress_reporting import ProgressReportingMixin
     from runtime_tools import RuntimeToolsMixin
     from management import SessionManagementMixin
@@ -130,7 +132,10 @@ def _normalize_base(url: str) -> str:
         return ""
     if "://" not in text:
         text = f"http://{text}"
-    return text
+    normalized = valid_base(text)
+    if not normalized:
+        raise ValueError('invalid ingress URL')
+    return normalized
 
 
 def _clean(text: str, max_chars: int) -> str:
@@ -302,7 +307,7 @@ async def _call_ingress(
 
 
 @register(PLUGIN_NAME, "yunliac", "DSH 任务、独立命令与只读运行进度", "2.0.0-beta")
-class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
+class DshToolPlugin(DiagnosticsMixin, ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
         self.config = config or {}
@@ -345,6 +350,18 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
             _conf(self.config, "idle_check_interval_sec", 60), 60)))
 
     async def initialize(self) -> None:
+        self._setup_diagnostics()
+        if _as_bool(_conf(self.config, 'connection_test_on_load', False)):
+            # One-shot action usable from AstrBot's bool-only configuration UI.
+            try:
+                self.config['connection_test_on_load'] = False
+                save = getattr(self.config, 'save_config', None)
+                if callable(save):
+                    save()
+                result = await self.test_connectivity()
+                self._diag('info' if result['ok'] else 'error', '配置页手动测试：' + json.dumps(result, ensure_ascii=False))
+            except Exception:
+                self._diag('error', '配置页手动连通测试失败。')
         self._ensure_reaper()
         try:
             if register_webui(self):
@@ -468,6 +485,12 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._bg_lanes.clear()
+        self._diag('info', '插件停止；后台观察任务已取消。')
+        handler = getattr(self, '_diagnostic_handler', None)
+        if handler:
+            self._diagnostic_target.removeHandler(handler)
+            handler.close()
+            self._diagnostic_handler = None
 
     @filter.on_llm_request()
     async def remind_dsh_capability(self, event: AstrMessageEvent, req: Any) -> None:
@@ -602,11 +625,21 @@ class DshToolPlugin(ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMix
         lock = self._lane_locks.setdefault(umo, asyncio.Lock())
         try:
             async with lock:
+                self._diag('info', 'DSH任务开始（不记录任务正文）')
+                started_at = time.monotonic()
                 watcher = asyncio.create_task(self._watch_progress(payload))
                 try:
                     text, session_id = await self._dispatch_once(
                         bases, token, payload, timeout, max_chars
                     )
+                    failure = text.startswith(('DSH 调用失败', 'DSH 连接失败')) or '[DSH 报告错误：' in text
+                    self._diag('error' if failure else 'info', f'DSH任务返回；成功={not failure}；耗时={int(time.monotonic()-started_at)}秒')
+                except asyncio.CancelledError:
+                    self._diag('warning', 'DSH等待已取消，远端任务状态需另行查询。')
+                    raise
+                except Exception as exc:
+                    self._diag('error', 'DSH通信异常：' + type(exc).__name__)
+                    raise
                 finally:
                     watcher.cancel()
                     await asyncio.gather(watcher, return_exceptions=True)

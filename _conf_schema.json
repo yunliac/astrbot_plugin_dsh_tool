@@ -5,6 +5,11 @@
     "type": "string",
     "default": ""
   },
+  "connection_test_on_load": {
+    "description": "手动连通测试（保存后重载插件执行一次）",
+    "hint": "先保存地址/token，再开启此项并保存、重载插件。完成后自动关闭，结果写入运行日志；也可在连接设置页点击测试即时查看。不会执行DSH任务。",
+    "type": "bool", "default": false
+  },
   "auto_progress_enabled": {
     "description": "长任务自动进度播报",
     "hint": "默认开启。DSH 未返回结果时定时只读查询，由当前聊天的 AstrBot LLM 总结推送，会产生模型调用费用。关闭不影响主动询问进度。",

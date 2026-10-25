@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import secrets
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -15,17 +15,31 @@ TOKEN_PATHS = (
     Path('/home/astrbot/.dsh/dsh-astrbot-ingress/config.json'),
     Path('/AstrBot/data/dsh-ingress/config.json'),
 )
+if os.name == 'nt':
+    TOKEN_PATHS = (Path.home() / '.dsh' / 'dsh-astrbot-ingress' / 'config.json',) + TOKEN_PATHS
 LOCAL_BASES = ('http://127.0.0.1:3188', 'http://host.docker.internal:3188',
-               'http://172.17.0.1:3188')
+               'http://172.17.0.1:3188', 'http://[::1]:3188')
 
 
 def valid_base(value):
+    """Return a safe HTTP(S) base, or None; malformed administrator input is not fatal."""
     if not isinstance(value, str):
         return None
-    p = urlsplit(value)
-    if p.scheme not in ('http', 'https') or not p.hostname or p.username or p.password or p.query or p.fragment:
+    value = value.strip()
+    # Reject parser disagreements (notably backslashes and silently removed controls),
+    # userinfo, and query/fragment delimiters that would swallow appended route paths.
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value) or '\\' in value or '?' in value or '#' in value:
         return None
-    return value.rstrip('/')
+    try:
+        p = urlsplit(value)
+        port = p.port  # Validate numeric/range errors, not just the hostname.
+        if (p.scheme not in ('http', 'https') or not p.hostname
+                or p.username is not None or p.password is not None
+                or p.netloc.endswith(':') or port == 0):
+            return None
+    except ValueError:
+        return None
+    return urlunsplit((p.scheme, p.netloc, p.path.rstrip('/'), '', ''))
 
 
 class ConnectionScanMixin:
@@ -66,13 +80,14 @@ class ConnectionScanMixin:
                     if not path.is_file() or path.stat().st_size > 65536:
                         continue
                     obj = json.loads(path.read_text(encoding='utf-8-sig'))
-                    token = obj.get('token')
-                    if isinstance(token, str) and token and '\n' not in token and len(token) <= 8192 and not any(t[0] == token for t in tokens):
+                    token = obj.get('token') if isinstance(obj, dict) else None
+                    if isinstance(token, str) and token and not any(ord(ch) < 32 or ord(ch) == 127 for ch in token) and len(token) <= 8192 and not any(t[0] == token for t in tokens):
                         tokens.append((token, '本机可读 DSH 标准配置'))
                 except (OSError, ValueError, TypeError):
                     pass
             # Tokens from files never go to arbitrary configured remote addresses.
-            candidates = list(dict.fromkeys([b for b in bases if valid_base(b)] + list(LOCAL_BASES)))[:6]
+            configured = [normalized for b in bases if (normalized := valid_base(b))]
+            candidates = list(dict.fromkeys(configured + list(LOCAL_BASES)))[:6]
             found = []
             deadline = time.monotonic() + 12
             for base in candidates:

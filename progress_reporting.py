@@ -55,7 +55,9 @@ class ProgressReportingMixin:
                         text = fallback
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as exc:
+                    if callable(getattr(self, '_diag', None)):
+                        self._diag('error', '自动进度总结失败：' + type(exc).__name__)
                     text = fallback + '（进度总结模型暂不可用。）'
                 if self._closing or not self.config.get('auto_progress_enabled', True):
                     return
@@ -63,9 +65,9 @@ class ProgressReportingMixin:
                 await self._send_to_chat(origin, f'【DSH 自动进度 · {channel[:80]}】\n{text[:2000]}')
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                # Observer outages never kill or resend the original task, nor
-                # leak private endpoints/error text. User can still query manually.
-                pass
+            except Exception as exc:
+                # Observer outages never kill or resend the original task.
+                if callable(getattr(self, '_diag', None)):
+                    self._diag('error', '自动进度读取失败：' + type(exc).__name__)
             if limit == 0 or index < limit:
                 await asyncio.sleep(interval)

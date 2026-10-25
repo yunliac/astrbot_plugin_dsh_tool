@@ -12,10 +12,14 @@ class SessionManagementMixin:
     def _runtime_bases(self, bases: list[str]) -> list[str]:
         configured = str(self.config.get('runtime_url', '') or '').strip().rstrip('/')
         if configured:
-            parts = urlsplit(configured)
-            if parts.scheme not in ('http', 'https') or not parts.hostname or parts.username:
+            try:
+                from .connection_scan import valid_base
+            except ImportError:
+                from connection_scan import valid_base
+            normalized = valid_base(configured if '://' in configured else 'http://' + configured)
+            if not normalized:
                 raise ValueError('invalid runtime URL')
-            return [configured]
+            return [normalized]
         result = []
         for base in bases:
             parts = urlsplit(base)
