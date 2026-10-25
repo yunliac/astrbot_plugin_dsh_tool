@@ -28,7 +28,7 @@
     "type": "int", "default": 0
   },
   "runtime_url": {
-    "description": "只读运行观察服务地址（2.0.0-beta）",
+    "description": "只读运行观察服务地址",
     "hint": "独立 companion 服务，使用官方 DSH API 观察进度。留空按 ingress 主机的 3190 端口推导；只允许内网访问，复用 token。读取不执行命令，不自动批准。",
     "type": "string",
     "default": ""

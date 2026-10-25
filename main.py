@@ -306,7 +306,7 @@ async def _call_ingress(
 # --------------------------------------------------------------------------- #
 
 
-@register(PLUGIN_NAME, "yunliac", "DSH 任务、独立命令与只读运行进度", "2.0.0-beta")
+@register(PLUGIN_NAME, "yunliac", "DSH 任务、独立命令与只读运行进度", "2.0.1-beta")
 class DshToolPlugin(DiagnosticsMixin, ConnectionScanMixin, ProgressReportingMixin, RuntimeToolsMixin, SessionManagementMixin, Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)

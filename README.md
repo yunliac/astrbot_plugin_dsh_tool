@@ -1,6 +1,6 @@
 # DSH 工具（日常对话）
 
-> **开发状态：本插件目前仍处于初步开发阶段，部分功能可能存在问题或尚不完善。使用过程中如遇到异常、功能失效或有改进建议，欢迎通过 [GitHub Issues](https://github.com/yunliac/astrbot_plugin_dsh_tool/issues) 反馈。反馈时请尽量附上插件版本、复现步骤和已脱敏的错误日志，切勿公开 token、API key 等敏感信息。**
+> **当前版本：2.0.1-beta**（Beta 仍在初步开发阶段，部分功能可能存在问题或尚不完善）。使用中如遇到异常、功能失效或有改进建议，欢迎通过 [GitHub Issues](https://github.com/yunliac/astrbot_plugin_dsh_tool/issues) 反馈。反馈时请尽量附上插件版本、复现步骤和通过“导出诊断日志”得到的脱敏日志，切勿公开 token、API key 等敏感信息。
 
 给 AstrBot 的**日常聊天**加一个 LLM 工具 `dsh_task`：模型自己判断什么时候该「动真格」，把写代码、执行命令、读写服务器文件、跑长任务这些活交给本机的 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 执行，再把结果拿回来继续回答。
 
@@ -34,7 +34,7 @@
 4. Windows用户目录下 `.dsh/dsh-astrbot-ingress/config.json` 已纳入手动扫描；Docker容器仍需只读挂载，不能直接访问宿主机路径。
 5. 不跟随HTTP重定向、不使用系统代理（避免代理截获token）。URL需有正确协议与端口，禁止用户名密码、查询串及fragment；token不要包含换行。
 
-## 2.0.0-beta：独立命令与运行进度观察
+## 2.0.1-beta：独立命令与运行进度观察
 
 此 beta 新增模块依据 **AstrBot 与 DSH 官方接口**独立编写，不读取或改写 `astrbot_plugin_dsh` 源代码。
 这不意味着原有第三方组件变成自研：任务执行仍使用现有 ingress，历史版本的许可与致谢保留。
@@ -85,7 +85,7 @@
 模型可调用 `dsh_active_sessions(recent_hours=24)`，返回当前聊天关联会话的名称、状态、最近活动及保留标记。
 默认近期 24 小时，可选 1–168 小时；运行中或等待交互的会话始终列出。
 只采纳服务端确认的 live 状态，排除冷会话、未知会话和其他聊天；读取失败不会拿本地缓存冒充在线结果。
-不会主动恢复会话，版本仍为 2.0.0-beta。
+不会主动恢复会话，版本仍为 2.0.1-beta。
 
 ### 独立命令
 

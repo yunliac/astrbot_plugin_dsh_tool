@@ -1,4 +1,4 @@
-"""Opt-in 2.0.0-beta runtime tools; no imports from other DSH plugins.
+"""Opt-in 2.0.1-beta runtime tools; no imports from other DSH plugins.
 
 Integration: import RuntimeToolsMixin and add it to the main Star's bases.
 The parent supplies session_store (SessionStore), _check_permission(event),

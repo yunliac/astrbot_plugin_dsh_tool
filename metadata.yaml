@@ -17,7 +17,9 @@ desc: |
   QQ 内自动标记、记录导出；会话标记持久化在插件数据目录。
   2.0.0-beta 新增独立 /dsh 命令入口与 dsh_progress 只读工具，
   可读取 agent 状态、待办、近期对话和终端/后台任务输出，不干扰原执行游标。
-version: 2.0.0-beta
+  2.0.1-beta 修复命令与工具实例绑定、过期状态误报、流中断被误判完成、
+  直接任务简写与 Windows 地址兼容；新增连通测试、诊断日志导出和左侧分页界面。
+version: 2.0.1-beta
 views:
   - name: dsh
     title: DSH 会话管理
