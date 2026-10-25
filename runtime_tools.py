@@ -30,6 +30,8 @@ _NOTICE = (
     '只报告证据明确显示的状态，不得猜测完成百分比；读取失败不表示任务已停止。'
 )
 _HELP = '''DSH 独立运行命令（/dsh）：
+/dsh <任务内容> 可直接执行；已知子命令优先匹配。
+任务首词与子命令重名时使用 /dsh run <任务内容>。
 help | list | status [SESSION] | progress [SESSION]
 run [--session SESSION] TASK | bg [--session SESSION] TASK
 new TASK | use SESSION | stop [SESSION]
@@ -38,7 +40,7 @@ answer SESSION REQUEST_ID TEXT
 SESSION 可用当前聊天已知的 id/session_id/channel/title；含空格请加引号。
 run/bg 使用 use 选择的通道（仅当前聊天、仅内存，不跨重启持久化）；
 未选择且存在多个会话时返回列表，不猜测。new 必须附任务。
-审批和回答必须明确会话及 request_id，不自动接受任何待处理请求。
+审批/问题回答本beta暂不接管，请在DSH网页处理；不会自动批准。
 这是独立运行入口，不是原插件全部功能的替代实现。'''
 _PUBLIC = ('id', 'session_id', 'channel', 'title', 'status')
 _STATUS_CN = {
@@ -306,7 +308,13 @@ class RuntimeToolsMixin:
                 'scope': 'current_chat', 'count': len(sessions), 'sessions': sessions,
                 'truncated': data.get('truncated') is True,
                 'notice': '仅列出当前聊天中确认未卸载的会话；运行/等待项不受近期范围限制。未知或冷会话不列入；列表不代表全部 DSH 会话。'})
-        except Exception:
+        except Exception as exc:
+            # Distinguish a missing optional management extension from a broken
+            # connection: task execution through /inbound is unaffected by it.
+            if '补丁' in str(exc) or '管理接口' in str(exc):
+                return self._runtime_json({'ok': False, 'error': 'management_unsupported',
+                    'message': '当前 DSH ingress 未提供会话管理扩展接口，无法列出未回收会话；'
+                               '这不等同于 token 或地址错误，执行任务不受影响。'})
             return self._runtime_json({'ok': False, 'error': 'active_list_unavailable',
                 'message': '无法确认未回收会话，请稍后重试；没有使用缓存状态冒充在线列表。'})
 
@@ -364,6 +372,25 @@ class RuntimeToolsMixin:
             lanes = self._command_lanes = {}
         return lanes
 
+    async def _runtime_submit_task(self, event, origin, task, target=None, background=False):
+        rows = self._runtime_rows(origin)
+        if target is None:
+            target = self._runtime_lanes().get(origin, '')
+        record = self._runtime_resolve(rows, target)
+        if record is None and (target or rows):
+            return self._runtime_targets_text(rows)
+        lane = ''
+        if record:
+            root = 'tool:' + origin
+            umo = record['umo']
+            if umo == root:
+                lane = ''
+            elif umo.startswith(root + '#') and umo[len(root) + 1:]:
+                lane = umo[len(root) + 1:]
+            else:
+                return '会话通道绑定无效，未提交任务。'
+        return await self.dsh_task(event, task=task, session=lane, background=background)
+
     async def _runtime_command(self, event, command: str) -> str:
         """Parse an explicitly dispatched command, never remote evidence/logs."""
         allowed, reason = self._runtime_permission(event)
@@ -373,6 +400,12 @@ class RuntimeToolsMixin:
             origin = self._runtime_origin(event)
             if not origin:
                 return '无法确认当前聊天，未执行任何动作。'
+            # Free-form tasks are not command syntax: preserve every quote,
+            # newline and Windows path, including unmatched prose quotes.
+            first = command.strip().split(None, 1)[0].lower() if command.strip() else ''
+            known = {'help', 'list', 'status', 'progress', 'run', 'bg', 'new', 'use', 'stop', 'approve', 'reject', 'answer'}
+            if first and first not in known:
+                return await self._runtime_submit_task(event, origin, command.strip())
             # Keep Windows paths verbatim while allowing quoted session titles.
             lexer = shlex.shlex(command, posix=True)
             lexer.whitespace_split = True
@@ -416,21 +449,7 @@ class RuntimeToolsMixin:
                     task = tails[2]
                 if not args:
                     return '请提供要执行的任务。用法：run/bg [--session SESSION] TASK'
-                record = self._runtime_resolve(rows, target)
-                if record is None and (target or rows):
-                    return self._runtime_targets_text(rows)
-                # Lane is derived from the actual binding, not the display title.
-                lane = ''
-                if record is not None:
-                    root = 'tool:' + origin
-                    umo = record['umo']
-                    if umo == root:
-                        lane = ''
-                    elif umo.startswith(root + '#') and umo[len(root) + 1:]:
-                        lane = umo[len(root) + 1:]
-                    else:
-                        return '会话通道绑定无效，未提交任务。'
-                return await self.dsh_task(event, task=task, session=lane, background=action == 'bg')
+                return await self._runtime_submit_task(event, origin, task, target, background=action == 'bg')
             if action in {'approve', 'reject', 'answer'}:
                 required = 3 if action == 'answer' else 2
                 if len(args) < required or (action != 'answer' and len(args) != required):

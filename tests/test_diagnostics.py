@@ -35,15 +35,21 @@ class Connectivity(unittest.IsolatedAsyncioTestCase):
         for status in (200,401,404):
             def handle(req):
                 self.assertEqual(req.headers['authorization'],'Bearer private-token')
-                body={'ok':True,'sessions':[]} if req.url.port==3188 else {'ok':True,'service':'dsh-runtime-observer'}
+                if req.url.port==3190:
+                    body={'ok':True,'service':'dsh-runtime-observer'}
+                elif req.url.path=='/health':
+                    body={'status':'ok'} if status==200 else {}
+                else:
+                    body={'ok':True,'sessions':[]}
                 return httpx.Response(status,json=body)
             original=httpx.AsyncClient
             def client(**kwargs):return original(transport=httpx.MockTransport(handle),**kwargs)
             with patch.object(m.httpx,'AsyncClient',client):
                 p=P();result=await p.test_connectivity()
             self.assertEqual(result['ok'],status==200)
-            self.assertEqual(len(result['results']),2)
+            self.assertEqual({r['service'] for r in result['results']},{'ingress','management','runtime'})
             self.assertNotIn('private-token',json.dumps(result))
+            self.assertIn('warning',result['timeout'])
     async def test_empty_credentials(self):
         class P(m.DiagnosticsMixin):
             def _resolve_settings(self):return [],'',30,1000

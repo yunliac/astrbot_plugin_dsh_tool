@@ -125,6 +125,15 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(json.loads(text)['ok'])
         self.assertNotIn('SECRET_TOKEN',text)
 
+    async def test_active_list_reports_missing_management_extension(self):
+        async def missing(path, params=None):
+            raise RuntimeError('ingress 尚未安装会话管理接口补丁')
+        self.p._management_request = missing
+        result = json.loads(await self.p.dsh_active_sessions(self.e))
+        self.assertEqual(result['error'], 'management_unsupported')
+        self.assertIn('执行任务不受影响', result['message'])
+        self.assertNotIn('ingress 尚未安装', json.dumps(result, ensure_ascii=False))
+
     async def test_permission_all_commands_and_tool(self):
         e = Event(allowed=False)
         for text in ['help', 'list', 'status', 'progress', 'run task', 'bg task', 'new task',
@@ -330,6 +339,18 @@ class RuntimeToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime._cn_time('2026-10-24T10:51:48.000Z', tz), '10-24 18:51:48')
         self.p.context = types.SimpleNamespace(get_config=lambda: {'timezone': 'Asia/Shanghai'})
         self.assertEqual(str(self.p._runtime_tz()), 'Asia/Shanghai')
+
+    async def test_free_form_task_after_dsh(self):
+        task = '看看 D:\\code\\a.py\n然后运行 python -c "print(1)" 保持原样 # 注释'
+        self.assertEqual(await self.command(task), 'task-result')
+        self.assertEqual(self.p.calls[-1], ('task', task, '', False))
+        # Unmatched prose quotes must not be rejected as command syntax.
+        loose = '解释一下这个符号 " 是什么意思'
+        await self.command(loose)
+        self.assertEqual(self.p.calls[-1], ('task', loose, '', False))
+        # Known subcommands still dispatch as commands, never as tasks.
+        await self.command('help')
+        self.assertEqual(len(self.p.calls), 2)
 
     async def test_command_replies_are_readable_text(self):
         self.p.add('one', title='部署维护')

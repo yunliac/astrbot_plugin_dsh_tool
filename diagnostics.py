@@ -109,6 +109,17 @@ class DiagnosticsMixin:
         if target:
             getattr(target, level)(redact(message))
 
+    def timeout_diagnostic(self):
+        try:
+            config = self.context.get_config()
+            limit = float(config.get('agent_runner', {}).get('config', {}).get('misc', {}).get('tool_call_timeout', 120))
+            waiting = float(self.config.get('timeout_sec', 900))
+            return {'astrbot_tool_timeout': limit, 'plugin_idle_timeout': waiting,
+                    'warning': ('AstrBot工具超时短于插件等待，前台长任务可能被提前中止。建议使用background=true或/dsh bg；如需前台等待，请手动调大AstrBot工具超时。插件等待按流空闲计时，持续输出时总时长可超过此值。'
+                                if limit <= waiting else '插件按流空闲计时，AstrBot按工具总时长计时；长任务优先后台执行。')}
+        except Exception:
+            return {'warning': '无法读取AstrBot工具超时；长任务建议/dsh bg或background=true，避免聊天模型工具等待超时。'}
+
     async def test_connectivity(self):
         now = time.monotonic()
         if now - getattr(self, '_connection_test_at', -1000) < 5:
@@ -118,7 +129,8 @@ class DiagnosticsMixin:
         if not token:
             return {'ok': False, 'results': [], 'message': '未填写token，请保存插件配置后重试。'}
         results = []
-        targets = [('ingress', b + '/sessions/managed') for b in bases[:2]]
+        targets = [(s, b + path) for b in bases[:2]
+                   for s, path in [('ingress', '/health'), ('management', '/sessions/managed')]]
         try:
             targets += [('runtime', b + '/health') for b in self._runtime_bases(bases)[:2]]
         except ValueError:
@@ -132,7 +144,8 @@ class DiagnosticsMixin:
                         if response.status_code in (401, 403):
                             message = '认证失败：token不匹配或无权限。'
                         elif response.status_code == 404:
-                            message = '接口不存在：地址/端口错误或服务版本缺少此接口。'
+                            message = ('管理扩展接口缺失：原版ingress仍可执行任务，但活跃列表/会话管理需要兼容管理接口。不是token错误。'
+                                       if service == 'management' else '接口不存在：地址/端口错误或服务版本缺少此接口。')
                         elif 300 <= response.status_code < 400:
                             message = '服务返回重定向；为避免凭据泄露未跟随。'
                         elif response.status_code != 200:
@@ -144,9 +157,11 @@ class DiagnosticsMixin:
                                 if len(raw) > 1024 * 1024:
                                     raise ValueError('oversize response')
                             data = json.loads(raw)
-                            ok = isinstance(data, dict) and data.get('ok') is True and (
-                                isinstance(data.get('sessions'), list) if service == 'ingress' else data.get('service') == 'dsh-runtime-observer')
-                            message = '连接和认证正常。' if ok else '响应格式不匹配，可能填入DSH网页端口而非ingress端口。'
+                            ok = isinstance(data, dict) and (
+                                (data.get('ok') is True or data.get('status') == 'ok') if service == 'ingress' else
+                                (data.get('ok') is True and (isinstance(data.get('sessions'), list)
+                                 if service == 'management' else data.get('service') == 'dsh-runtime-observer')))
+                            message = ('健康端点可达；健康接口不一定验证token，管理接口成功才确认管理认证。' if service == 'ingress' else '连接和认证正常。') if ok else '响应格式不匹配，可能填入DSH网页端口而非ingress端口。'
             except httpx.TimeoutException:
                 message = '连接超时：检查防火墙、地址、监听接口及Docker网络。'
             except httpx.ConnectError:
@@ -156,7 +171,8 @@ class DiagnosticsMixin:
             results.append({'service': service, 'ok': ok, 'elapsed_ms': int((time.monotonic()-start)*1000), 'message': message})
             self._diag('info' if ok else 'error', f'连通测试 {service}: {message}')
         return {'ok': any(r['ok'] for r in results if r['service'] == 'ingress'), 'results': results,
-                'message': '只测试已保存配置。未提交任务；ingress与运行观察接口独立判断。'}
+                'timeout': self.timeout_diagnostic(),
+                'message': '只测试已保存配置，未提交任务。健康可达不等于所有功能或token已验证；请分别检查管理和观察接口。' + self.timeout_diagnostic()['warning']}
 
     def export_diagnostics(self):
         handler = getattr(self, '_diagnostic_handler', None)
